@@ -266,6 +266,8 @@
             rickmorty: { url: 'https://rickandmortyapi.com/api/character/', desc: 'Rick & Morty character by name', params: { name: 'search' } },
             ipinfo: { url: 'https://ipinfo.io/json', desc: 'Your IP geolocation info', params: {} },
             uuid: { url: 'https://www.uuidtools.com/api/generate/v4/count/1', desc: 'Generate a UUID', params: {} },
+            stock: { url: 'https://stooq.com/q/l/', desc: 'Stock quote by ticker (e.g. AAPL.US) - no key', params: { symbol: 'AAPL.US' } },
+            university: { url: 'https://universities.hipolabs.com/search', desc: 'Search universities by country', params: { country: 'name' } },
         };
         async function httpJson(url) {
             try {
@@ -301,6 +303,10 @@
                 url = def.url + '?' + new URLSearchParams({ from: String(p.from || 'USD'), to: String(p.to || 'EUR') }).toString();
             } else if (api === 'dog') {
                 url = def.url;
+            } else if (api === 'stock') {
+                url = def.url + '?' + new URLSearchParams({ s: String(p.symbol || 'AAPL.US'), f: 'sd2t2ohlcv', h: '', e: 'csv' }).toString();
+            } else if (api === 'university') {
+                url = def.url + '?' + new URLSearchParams({ country: String(p.country || 'Morocco') }).toString();
             } else if (api === 'reddit' || api === 'hn') { /* handled above */ }
             const data = await httpJson(url);
             return JSON.stringify(data).slice(0, 3000);
@@ -312,6 +318,8 @@
             'youtube-studio': { title: 'YouTube Studio', desc: 'YouTube content systems: scripts, thumbnails, SEO, scheduling.', prompt: 'For YouTube/creator systems: separate the audience goal from the deliverable. Build script generators with hooks/retention patterns, thumbnail layout tools, keyword/SEO helpers, and clearly document the YouTube Data API key needed for actual uploads.' },
             'data-analyst': { title: 'Data Analyst', desc: 'Dashboards and analysis with real data, charts, and export.', prompt: 'Build data dashboards with real data where possible (use api_call), charts (inline SVG/canvas), filters, and CSV/JSON export buttons.' },
             'debugger': { title: 'Debugger', desc: 'Systematic debugging: reproduce, isolate, fix, verify.', prompt: 'Debug systematically: reproduce the issue, isolate the cause, apply the minimal fix, then verify with the test_html tool. Explain root cause clearly.' },
+            'documentation': { title: 'Documentation', desc: 'Great READMEs, comments, and project docs.', prompt: 'Write excellent documentation: clear README with badges/quickstart/API reference, meaningful comments, and a changelog. Structure output with headings and tables.' },
+            'seo-writer': { title: 'SEO Writer', desc: 'Content optimized for search: keywords, structure, meta.', prompt: 'Write SEO-optimized content: strong hooks, keyword-rich headings, concise meta descriptions, scannable bullets, and internal-link suggestions.' },
         };
         function skillsDescription() { return Object.entries(SKILL_PACKS).map(([k, v]) => '- ' + k + ': ' + v.desc).join('\n'); }
         async function runTutorial(a) {
@@ -348,7 +356,13 @@
             { name: 'api_call', desc: 'Call a free keyless public API (GitHub search, Hacker News, Reddit, Wikipedia, weather, crypto, quotes, countries, currency, SpaceX, etc.). See browse_apis for the full list.', args: { api: 'string', params: 'object' } },
             { name: 'browse_apis', desc: 'List the available keyless public APIs.', args: {} },
             { name: 'tutorial', desc: 'Fetch a "build your own X" tutorial outline (git, database, OS, game, language, etc.) from the codecrafters collection.', args: { topic: 'string' } },
-            { name: 'load_skill', desc: 'Load a skill pack that changes how you approach tasks. Available: ' + Object.keys(SKILL_PACKS).join(', ') + '.', args: { skill: 'string' } }
+            { name: 'load_skill', desc: 'Load a skill pack that changes how you approach tasks. Available: ' + Object.keys(SKILL_PACKS).join(', ') + '.', args: { skill: 'string' } },
+            { name: 'pdf_text', desc: 'Extract text from a PDF file given its URL.', args: { url: 'string' } },
+            { name: 'code_lookup', desc: 'Fetch canonical source/docs for a technology (python, javascript, react, css, html, sql, git, docker, linux).', args: { topic: 'string' } },
+            { name: 'sys_design', desc: 'Fetch a system design outline (from System Design 101): database, messaging, caching, cdn, load-balancer, microservices, etc.', args: { topic: 'string' } },
+            { name: 'roadmap', desc: 'Fetch a developer roadmap section (from developer-roadmap): frontend, backend, devops, ai, etc.', args: { topic: 'string' } },
+            { name: 'design_ref', desc: 'Fetch premium design resources (palettes, typography, ui patterns) from design-resources-for-developers.', args: { category: 'string' } },
+            { name: 'skill_catalog', desc: 'List all skill packs and their knowledge sources (awesome-claude-skills, agent-skills, agentskills, SkillKit, scienceaix).', args: {} }
         );
 
         function toolsDescription() {
@@ -433,6 +447,101 @@
             if (name === 'api_call') return runApiCall(a);
             if (name === 'browse_apis') return Object.entries(KEYLESS_APIS).map(([k, v]) => '- ' + k + ': ' + v.desc).join('\n');
             if (name === 'tutorial') return runTutorial(a);
+            if (name === 'pdf_text') {
+                const u = String(a.url || '');
+                if (!u) return '[pdf_text: missing url]';
+                try {
+                    const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(u));
+                    if (!r.ok) return '[pdf_text: fetch failed HTTP ' + r.status + ']';
+                    const buf = await r.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    let out = '';
+                    const inflate = (d) => { try { return new TextDecoder('utf-8').decode(d); } catch (e) { return ''; } };
+                    const text = inflate(bytes);
+                    if (!text || !text.includes('PDF')) return '[pdf_text: could not extract text from this PDF (browser limitation). Use the pipeline mode for full PDF parsing.]';
+                    const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ' ').replace(/\s+/g, ' ').trim();
+                    return clean.slice(0, 6000);
+                } catch (e) { return '[pdf_text: ' + (e.message || e) + ']'; }
+            }
+            if (name === 'code_lookup') {
+                const topic = String(a.topic || '').toLowerCase().trim();
+                const urls = {
+                    python: 'https://raw.githubusercontent.com/Asabeneh/30-Days-Of-Python/master/readme.md',
+                    javascript: 'https://raw.githubusercontent.com/Asabeneh/30-Days-Of-JavaScript/master/readme.md',
+                    react: 'https://raw.githubusercontent.com/reactjs/react.dev/main/src/content/learn/start-a-new-react-project.md',
+                    css: 'https://raw.githubusercontent.com/web-platform-tests/wpt/master/README.md',
+                    html: 'https://raw.githubusercontent.com/whatwg/html/main/README.md',
+                    sql: 'https://raw.githubusercontent.com/datacharmer/test_db/master/README.md',
+                    git: 'https://raw.githubusercontent.com/git/git/master/README.md',
+                    docker: 'https://raw.githubusercontent.com/docker/docs/main/content/manuals/cli/README.md',
+                    linux: 'https://raw.githubusercontent.com/torvalds/linux/master/README',
+                };
+                const u = urls[topic];
+                if (!u) return '[code_lookup: unknown topic "' + topic + '". Available: ' + Object.keys(urls).join(', ') + ']';
+                try {
+                    const r = await fetch(u);
+                    if (!r.ok) return '[code_lookup: fetch failed]';
+                    const t = await r.text();
+                    return t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+                } catch (e) { return '[code_lookup: ' + (e.message || e) + ']'; }
+            }
+            if (name === 'sys_design') {
+                const kw = String(a.topic || '').toLowerCase().trim() || 'intro';
+                const r = await fetch('https://raw.githubusercontent.com/ByteByteGoHq/system-design-101/master/README.md');
+                if (!r.ok) return '[sys_design: fetch failed]';
+                const md = await r.text();
+                const lines = md.split('\n');
+                let idx = -1;
+                for (let i = 0; i < lines.length; i++) { if (/^#{1,3}\s/.test(lines[i]) && lines[i].toLowerCase().includes(kw)) { idx = i; break; } }
+                if (idx === -1) return '[sys_design: no section for "' + kw + '". Sections include: system design, database, messaging, caching, cdn, load balancer, microservices, etc.]';
+                let out = [], count = 0;
+                for (let i = idx + 1; i < lines.length && count < 12; i++) {
+                    if (/^#{1,3}\s/.test(lines[i])) break;
+                    const t = lines[i].trim();
+                    if (t) { out.push(t.slice(0, 160)); count++; }
+                }
+                return lines[idx].replace(/^#+\s*/, '') + '\n' + out.join('\n');
+            }
+            if (name === 'roadmap') {
+                const kw = String(a.topic || '').toLowerCase().trim() || 'frontend';
+                const r = await fetch('https://raw.githubusercontent.com/kamranahmedse/developer-roadmap/master/README.md');
+                if (!r.ok) return '[roadmap: fetch failed]';
+                const md = await r.text();
+                const lines = md.split('\n');
+                let idx = -1;
+                for (let i = 0; i < lines.length; i++) { if (/^#{1,3}\s/.test(lines[i]) && lines[i].toLowerCase().includes(kw)) { idx = i; break; } }
+                if (idx === -1) return '[roadmap: no section for "' + kw + '". Try: frontend, backend, devops, ai, android, etc.]';
+                let out = [], count = 0;
+                for (let i = idx + 1; i < lines.length && count < 12; i++) {
+                    if (/^#{1,3}\s/.test(lines[i])) break;
+                    const t = lines[i].trim();
+                    if (t) { out.push(t.slice(0, 140)); count++; }
+                }
+                return lines[idx].replace(/^#+\s*/, '') + '\n' + out.join('\n');
+            }
+            if (name === 'design_ref') {
+                const cat = String(a.category || '').toLowerCase().trim();
+                const map = { color: 'color', palette: 'color', font: 'typography', typography: 'typography', ui: 'ui', component: 'ui', icon: 'icons', image: 'images' };
+                const key = map[cat] || 'ui';
+                const r = await fetch('https://raw.githubusercontent.com/bradtraversy/design-resources-for-developers/master/README.md');
+                if (!r.ok) return '[design_ref: fetch failed]';
+                const md = await r.text();
+                const lines = md.split('\n');
+                let idx = -1;
+                for (let i = 0; i < lines.length; i++) { if (/^#{1,4}\s/.test(lines[i]) && lines[i].toLowerCase().includes(key)) { idx = i; break; } }
+                if (idx === -1) return '[design_ref: no section for "' + cat + '". Categories: color, typography, ui, icons, images, etc.]';
+                let out = [], count = 0;
+                for (let i = idx + 1; i < lines.length && count < 10; i++) {
+                    if (/^#{1,4}\s/.test(lines[i])) break;
+                    const t = lines[i].replace(/[|\[\]]/g, '').trim();
+                    if (t && t.length > 4) { out.push(t.slice(0, 120)); count++; }
+                }
+                return lines[idx].replace(/^#+\s*/, '') + '\n' + out.join('\n');
+            }
+            if (name === 'skill_catalog') {
+                return 'SKILL PACKS: ' + Object.entries(SKILL_PACKS).map(([k, v]) => k + ' (' + v.title + ')').join(', ') +
+                    '\nSOURCES: awesome-claude-skills (1000+ skills), addyosmani/agent-skills (24 lifecycle skills), scienceaix/agentskills, SkillKit (package manager, 46 agents / 31 sources), vercel-labs/skills.\nUse load_skill to activate a pack, or ask me to add a skill from these collections.';
+            }
             if (name === 'load_skill') {
                 const sk = String(a.skill || '').toLowerCase().trim();
                 const pack = SKILL_PACKS[sk];
@@ -1006,6 +1115,32 @@
                         { role: 'user', content: finalContent },
                     ];
                     let out = await brainCall(messagesPayload, { jsonMode: true, temperature: 0.4 });
+                    // ---- AUTONOMOUS RESEARCH: if the task needs info the model lacks,
+                    //      automatically dispatch a research round with web_search + api_call.
+                    //      The user never has to name a tool. ----
+                    const RESEARCH_TRIGGERS = /current|latest|news|trend|price|weather|who|what is|how does|compare|top |best |2026|api|youtube|reddit|hacker news|stock|statistics|rank|review|vs\./i;
+                    const firstPass = out;
+                    if (out && !Array.isArray(out.tool_calls) && RESEARCH_TRIGGERS.test(userText) && !isHeavyBuild(userText)) {
+                        pushMessage({ id: uid(), kind: 'card', title: 'AUTONOMOUS RESEARCH', tone: 'info', lines: ['This task needs current information. Searching automatically...'], ts: stamp() });
+                        const queries = [userText.slice(0, 140), userText.slice(0, 80) + ' 2026'];
+                        const results = [];
+                        for (let qi = 0; qi < Math.min(2, queries.length); qi++) {
+                            const r = await runTool('web_search', { query: queries[qi] }, { remoteToken });
+                            if (r && !String(r).startsWith('[')) results.push('Query: ' + queries[qi] + '\n' + r);
+                        }
+                        if (!results.length) {
+                            const apiRes = await runTool('api_call', { api: 'hn', params: { q: userText.slice(0, 60) } }, { remoteToken });
+                            results.push('Hacker News search: ' + String(apiRes).slice(0, 1500));
+                        }
+                        pushMessage({ id: uid(), kind: 'card', title: 'RESEARCH COMPLETE', tone: 'ok', lines: ['Found ' + results.length + ' source(s). Now generating the answer with real data.'], ts: stamp() });
+                        out = await brainCall([
+                            { role: 'system', content: buildSystemPrompt(activeChat && activeChat.memory) },
+                            ...hist,
+                            { role: 'user', content: finalContent },
+                            { role: 'assistant', content: JSON.stringify({ reasoning: firstPass.reasoning || [] }) },
+                            { role: 'user', content: 'RESEARCH RESULTS:\n' + results.join('\n\n---\n\n').slice(0, 9000) + '\n\nNow answer the original request using this data where relevant. Cite sources inline.' },
+                        ], { jsonMode: true, temperature: 0.4 });
+                    }
                     // ---- TOOL LOOP: the agent calls tools, sees results, continues ----
                     for (let round = 0; round < 4 && out && Array.isArray(out.tool_calls) && out.tool_calls.length; round++) {
                         const results = [];

@@ -294,3 +294,39 @@ GitHub pipeline as the resilient workhorse.
 - **Push rejected after a run** - the workflow commits with `GITHUB_TOKEN`; make sure the branch is not protected.
 - **Nothing committed after a successful run** - the run produced byte-identical output; no diff means no commit, and the push is a no-op.
 - **Monaco editor blank on tab switch** - fixed: the workspace calls `editor.layout()` when the Source Code tab becomes active.
+
+## External Knowledge Catalog (24 repos integrated / mapped)
+
+| # | Repo | What it adds to Nexus | Status |
+|---|------|----------------------|--------|
+| 1 | public-apis/public-apis | `api_call` - 21 keyless APIs (GitHub, HN, Reddit, Wikipedia, weather, crypto, stocks via stooq, countries, FX, universities...) | wired |
+| 2 | Panniantong/agent-reach | Zero-fee social access (Reddit/HN/GitHub in browser; full CLI for Twitter/YouTube/Bilibili/XHS) | wired + doc |
+| 3 | codecrafters-io/build-your-own-x | `tutorial` - step-by-step build guides (DB, git, OS, game, language...) | wired |
+| 4 | vercel-labs/skills | `load_skill` + SKILLS button (skill packs) | wired |
+| 5 | scienceaix/agentskills | Skill collection index (source for future packs) | mapped |
+| 6 | addyosmani/agent-skills | 24 lifecycle skills (spec→ship) - source for new packs | mapped |
+| 7 | awesome-claude-skills | 1000+ production skills/plugins catalog (source for packs) | mapped |
+| 8 | SkillKit | Skill package manager (46 agents / 31 sources) | mapped |
+| 9 | ByteByteGoHq/system-design-101 | `sys_design` - architecture outlines (caching, CDN, DB, messaging) | wired |
+| 10 | kamranahmedse/developer-roadmap | `roadmap` - learning paths (frontend, backend, devops, AI) | wired |
+| 11 | bradtraversy/design-resources-for-developers | `design_ref` - palettes, typography, UI resources | wired |
+| 12 | langchain-ai/openwiki | Open wiki knowledge source (future api_call entry) | mapped |
+| 13 | DeusData/codebase-memory-mcp | Persistent memory patterns (informs project memory design) | mapped |
+| 14 | microsoft/mcp | MCP server catalog - the next integration wave | mapped |
+| 15 | browser-use (86k stars) | Browser automation pattern (Puter net.fetch already gives CORS-free browsing) | mapped |
+| 16 | OpenBB | Financial data platform - future finance tools | mapped |
+| 17 | Mem0 | Universal memory layer pattern | mapped |
+| 18 | AutoGPT / MetaGPT | Multi-agent role patterns (planner/architect/engineer) - informs plan phases | mapped |
+| 19 | LangGraph / CrewAI / AutoGen | Orchestration patterns (stateful graphs, crews) | mapped |
+| 20 | smolagents | Code-first agent pattern | mapped |
+| 21 | nanochat (Karpathy) | LLM training fundamentals (code_lookup extension) | mapped |
+| 22 | transitions.dev | CSS transition snippets (frontend-expert skill source) | mapped |
+| 23 | Lenny's Newsletter data | PM/business knowledge corpus | mapped |
+| 24 | Bernstein | Test-driven verification pattern (sandbox review already applies this) | mapped |
+
+**How autonomy works now:** you never name tools. Nexus decides - if your request
+needs current info it automatically triggers **AUTONOMOUS RESEARCH** (web_search
++ api_call + HN fallback, shown as cards) before answering; for complex builds it
+plans in phases; for systems work it can pull engineering guides via `tutorial`,
+`sys_design`, `roadmap`, or `design_ref` on its own. It iterates until it has what
+it needs.
