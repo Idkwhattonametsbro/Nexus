@@ -1,5 +1,5 @@
 {
-  "timestamp": "20260813_125828",
+  "timestamp": "20260813_125844",
   "run_id": "local",
   "prompt": "Build a landing page",
   "mode": "code",
@@ -7,16 +7,12 @@
   "model": "unknown",
   "latency_ms": 0,
   "artifacts": [
-    "output/app_20260813_125828_0.html"
+    "output/app_20260813_125844_0.html"
   ],
   "research": false,
   "review": {
-    "enabled": false,
+    "enabled": true,
     "applied": false
   },
-  "repo_creation": {
-    "status": "no_token",
-    "url": null,
-    "message": "[System] Repo creation requested but no GitHub token is configured. Add the NEXUS_GITHUB_TOKEN repository secret (fine-grained, Contents read/write + Administration read/write on your account) and rerun."
-  }
+  "repo_creation": null
 }

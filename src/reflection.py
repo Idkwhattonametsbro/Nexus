@@ -85,6 +85,7 @@ class SelfReflection:
 
                 if "NO_LESSON" in clean_lesson.upper():
                     print("[System] Reflection produced no lesson (environment-only event).")
+                    lesson = None
                 elif clean_lesson and len(clean_lesson) < 200:
                     normalized = clean_lesson.lower()
                     existing = [l.lower() for l in data.get("lessons", [])]
