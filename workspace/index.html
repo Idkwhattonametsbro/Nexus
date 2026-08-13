@@ -34,7 +34,8 @@
         }
     </script>
     <style>
-        body { background-color: #FAF8F4; color: #44403C; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        html, body { height: 100%; overscroll-behavior: none; }
+        body { background-color: #FAF8F4; color: #44403C; margin: 0; overflow: hidden; position: fixed; inset: 0; width: 100%; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #D9D2C4; border-radius: 4px; }
@@ -77,20 +78,24 @@
         const BRAIN_KEY = 'nexus_brain';
         const MEMORY_KEY = 'nexus_chat_memory';
         const HISTORY_KEY = 'nexus_chat_history';
+        const CHATS_KEY = 'nexus_chats';
 
-        function loadChatHistory() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [] } catch (e) { return [] } }
-        function saveChatHistory(msgs) {
+        function loadChats() { try { return JSON.parse(localStorage.getItem(CHATS_KEY)) || [] } catch (e) { return [] } }
+        function saveChats(chats) {
             try {
-                const slim = msgs.map(m => {
-                    const s = { id: m.id, role: m.role, kind: m.kind, ts: m.ts, text: m.text && m.text.slice(0, 20000) };
-                    if (m.kind === 'thought') s.lines = (m.lines || []).slice(0, 8);
-                    if (m.kind === 'questions') s.items = (m.items || []).slice(0, 4);
-                    if (m.kind === 'artifact') { s.filename = m.filename; s.lang = m.lang; s.summary = m.summary; s.iterations = m.iterations; s.review = m.review; s.content = (m.content || '').slice(0, 30000); }
-                    if (m.kind === 'card') s.title = m.title; s.tone = m.tone;
-                    if (m.attachments) s.attachments = m.attachments.map(a => a.kind === 'image' ? { id: a.id, kind: 'image', name: a.name, dataUrl: (a.dataUrl || '').slice(0, 400000) } : { id: a.id, kind: a.kind, name: a.name });
-                    return s;
-                }).slice(-60);
-                localStorage.setItem(HISTORY_KEY, JSON.stringify(slim));
+                const slim = chats.map(c => ({
+                    id: c.id, title: c.title, created: c.created,
+                    messages: (c.messages || []).map(m => {
+                        const s = { id: m.id, role: m.role, kind: m.kind, ts: m.ts, text: m.text && m.text.slice(0, 20000) };
+                        if (m.kind === 'thought') s.lines = (m.lines || []).slice(0, 8);
+                        if (m.kind === 'questions') s.items = (m.items || []).slice(0, 4);
+                        if (m.kind === 'artifact') { s.filename = m.filename; s.lang = m.lang; s.summary = m.summary; s.iterations = m.iterations; s.review = m.review; s.content = (m.content || '').slice(0, 30000); }
+                        if (m.kind === 'card') { s.title = m.title; s.tone = m.tone; }
+                        if (m.attachments) s.attachments = m.attachments.map(a => a.kind === 'image' ? { id: a.id, kind: 'image', name: a.name, dataUrl: (a.dataUrl || '').slice(0, 400000) } : { id: a.id, kind: a.kind, name: a.name });
+                        return s;
+                    }).slice(-60),
+                }));
+                localStorage.setItem(CHATS_KEY, JSON.stringify(slim));
             } catch (e) {}
         }
 
@@ -379,9 +384,9 @@
             useEffect(() => {
                 const canvas = ref.current;
                 const ctx = canvas.getContext('2d');
-                let raf, particles = [], w, h, dpr = Math.min(window.devicePixelRatio || 1, 2);
+                let raf, particles = [], w, h, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
                 const resize = () => { w = canvas.clientWidth; h = canvas.clientHeight; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
-                const seed = () => { const n = w < 768 ? 42 : 85; particles = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: 1 + Math.random() * 2.2, warm: Math.random() < 0.6 })); };
+                const seed = () => { const n = w < 768 ? 26 : 48; particles = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: 1 + Math.random() * 2.2, warm: Math.random() < 0.6 })); };
                 const step = () => {
                     ctx.clearRect(0, 0, w, h);
                     for (const p of particles) {
@@ -393,8 +398,8 @@
                     }
                     for (let i = 0; i < particles.length; i++) for (let j = i + 1; j < particles.length; j++) {
                         const a = particles[i], b = particles[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
-                        if (d2 < 130 * 130) {
-                            const alpha = (1 - Math.sqrt(d2) / 130) * 0.14;
+                        if (d2 < 105 * 105) {
+                            const alpha = (1 - Math.sqrt(d2) / 105) * 0.12;
                             ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
                             ctx.strokeStyle = 'rgba(234,88,12,' + alpha + ')'; ctx.lineWidth = 1; ctx.stroke();
                         }
@@ -402,9 +407,11 @@
                     raf = requestAnimationFrame(step);
                 };
                 resize(); seed(); step();
+                const onVis = () => { if (document.hidden) cancelAnimationFrame(raf); else { raf = requestAnimationFrame(step); } };
+                document.addEventListener('visibilitychange', onVis);
                 const onResize = () => { resize(); seed(); };
                 window.addEventListener('resize', onResize);
-                return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); };
+                return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); document.removeEventListener('visibilitychange', onVis); };
             }, []);
             return <canvas id="particle-canvas" ref={ref}></canvas>;
         }
@@ -413,7 +420,8 @@
         function App() {
             const [activeView, setActiveView] = useState('chat');
             const [chatInput, setChatInput] = useState('');
-            const [messages, setMessages] = useState([]);
+            const [chats, setChats] = useState([]);
+            const [activeChatId, setActiveChatId] = useState(null);
             const [busy, setBusy] = useState(false);
             const [providerTag, setProviderTag] = useState('--');
             const [expandedThought, setExpandedThought] = useState(null);
@@ -438,18 +446,39 @@
             const fileInputRef = useRef(null);
             const editorRef = useRef(null);
             const chatScrollRef = useRef(null);
+            const activeChat = chats.find(c => c.id === activeChatId) || null;
+            const messages = activeChat ? activeChat.messages : [];
             const messagesRef = useRef(messages);
             messagesRef.current = messages;
 
-            const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
-            const updateMessage = useCallback((id, patch) => setMessages(prev => prev.map(m => m.id === id ? (typeof patch === 'function' ? patch(m) : { ...m, ...patch }) : m)), []);
+            /* Route all message mutations to the active chat */
+            const setMessages = (updater) => setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: typeof updater === 'function' ? updater(c.messages) : updater } : c));
+            const pushMessage = useCallback((m) => setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: [...c.messages, m] } : c)), [activeChatId]);
+            const updateMessage = useCallback((id, patch) => setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: c.messages.map(m => m.id === id ? (typeof patch === 'function' ? patch(m) : { ...m, ...patch }) : m) } : c)), [activeChatId]);
 
-            /* ---- boot ---- */
+            const newChat = () => {
+                const boot = [{ id: uid(), role: 'system', text: 'Nexus Agent ready. New conversation.', ts: stamp() }];
+                const chat = { id: uid(), title: 'Chat ' + (chats.length + 1), messages: boot, created: Date.now() };
+                setChats(prev => [...prev, chat]);
+                setActiveChatId(chat.id);
+                setActiveView('chat');
+            };
+            const deleteChat = (id) => {
+                setChats(prev => {
+                    const next = prev.filter(c => c.id !== id);
+                    if (id === activeChatId) setActiveChatId(next.length ? next[next.length - 1].id : null);
+                    return next;
+                });
+            };
+            const switchChat = (id) => { setActiveChatId(id); setActiveView('chat'); };
+
+            /* ---- boot: restore chats or create the first one ---- */
             useEffect(() => {
-                const restored = loadChatHistory();
-                if (restored && restored.length) {
-                    setMessages(restored);
-                    pushMessage({ id: uid(), kind: 'card', title: 'SESSION RESTORED', tone: 'ok', lines: ['Your chat history, keys and settings were saved in this browser. Continue where you left off.'], ts: stamp() });
+                try { setRemoteToken(localStorage.getItem('nexus_remote_token') || '') } catch (e) {}
+                const saved = loadChats();
+                if (saved && saved.length) {
+                    setChats(saved);
+                    setActiveChatId(saved[saved.length - 1].id);
                     return;
                 }
                 const boot = [];
@@ -459,10 +488,12 @@
                 } else if (remoteToken.trim()) {
                     boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus, running through the background pipeline with your GitHub secrets. I plan, build, review, fix and deliver working apps right here in this chat. Ask me to build something, or tap a quick task below.', ts: stamp() });
                 } else {
-                    boot.push({ id: uid(), kind: 'card', title: 'ONE-TIME SETUP', tone: 'info', lines: ['Nexus thinks in the background using your GitHub secrets - API keys never enter this chat.', 'Tap PIPELINE and paste your GitHub token once (fine-grained, Actions read/write).', 'Stored only in this browser. No LLM keys required.'], ts: stamp() });
+                    boot.push({ id: uid(), kind: 'card', title: 'CONNECT A BRAIN', tone: 'info', lines: ['Nexus needs a brain to think with. Tap SIGN IN below to use Puter (Claude Fable 5 - free account), or open BRAIN to add Gemini/Groq keys.', 'One-time setup - everything is then saved in this browser.'], ts: stamp() });
+                    boot.push({ id: uid(), kind: 'puterPrompt', ts: stamp() });
                 }
-                setMessages(boot);
-                try { setRemoteToken(localStorage.getItem('nexus_remote_token') || '') } catch (e) {}
+                const chat = { id: uid(), title: 'Chat 1', messages: boot, created: Date.now() };
+                setChats([chat]);
+                setActiveChatId(chat.id);
             }, []);
 
             /* ---- data feeds ---- */
@@ -476,18 +507,17 @@
 
             useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [messages]);
 
-            // Persist the chat automatically (debounced) - everything is kept
+            // Persist all chats automatically (debounced) - everything is kept
             useEffect(() => {
-                const t = setTimeout(() => { if (messages.length) saveChatHistory(messages); }, 900);
+                const t = setTimeout(() => { if (chats.length) saveChats(chats); }, 900);
                 return () => clearTimeout(t);
-            }, [messages]);
+            }, [chats]);
 
             const clearSession = () => {
-                if (!window.confirm('Clear the saved chat history and start fresh? (Keys and settings stay saved)')) return;
-                try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
+                if (!window.confirm('Clear the active chat? (Keys, settings and other chats stay saved)')) return;
                 setMessages([]);
                 const boot = [];
-                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Fresh session.', ts: stamp() });
+                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Fresh chat.', ts: stamp() });
                 if (brainConfigured()) boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus. Ask me to build something, or just chat.', ts: stamp() });
                 setMessages(boot);
             };
@@ -502,8 +532,14 @@
                 return () => vv.removeEventListener('resize', onResize);
             }, []);
 
-            /* ---- Monaco ---- */
+            /* ---- Monaco (lazy: only loads when the FILES view is opened) ---- */
+            const monacoLoaded = useRef(false);
             useEffect(() => {
+                if (activeView !== 'files' || monacoLoaded.current) {
+                    if (activeView === 'files' && editorRef.current) setTimeout(() => editorRef.current.layout(), 50);
+                    return;
+                }
+                monacoLoaded.current = true;
                 require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' } });
                 require(['vs/editor/editor.main'], function () {
                     monaco.editor.defineTheme('nexus-light', {
@@ -522,7 +558,7 @@
                         fontSize: 12, lineHeight: 19, padding: { top: 12 }, readOnly: true, scrollBeyondLastLine: false,
                     });
                 });
-            }, []);
+            }, [activeView]);
             useEffect(() => { if (activeView === 'files' && editorRef.current) setTimeout(() => editorRef.current.layout(), 50); }, [activeView, openFile]);
 
             const openFileContent = (path) => {
@@ -853,14 +889,17 @@
                     let out;
                     if (usePuter) {
                         // Stream the reply token-by-token: a live "typing" bubble
-                        // that resolves into the final answer.
+                        // that resolves into the final answer (throttled updates).
                         const liveId = uid();
                         pushMessage({ id: liveId, role: 'agent', text: '', streaming: true, ts: stamp() });
-                        let buf = '';
+                        let buf = '', lastPaint = 0;
                         out = await puterStream(messagesPayload, {
                             jsonMode: true,
                             onToken: (chunk) => {
                                 buf += chunk;
+                                const now = Date.now();
+                                if (now - lastPaint < 120) return; // throttle re-renders
+                                lastPaint = now;
                                 const n = Math.min(3, 1 + Math.floor(buf.length / 400));
                                 updateMessage(liveId, { text: '▊'.repeat(n), streaming: true });
                             },
@@ -997,6 +1036,29 @@
                         </div>
                     );
                 }
+                if (m.kind === 'puterPrompt') {
+                    return (
+                        <div className="animate-fadeup rounded-2xl border border-ember-300 bg-ember-50/60 p-4 shadow-soft">
+                            <div className="text-[10px] font-semibold tracking-[0.14em] text-ember-700 mb-2">CONNECT NEXUS TO A BRAIN</div>
+                            <div className="text-[12px] leading-relaxed text-stone-600 mb-3">One tap signs you into Puter - free account, no API key, and Nexus thinks with <b>Claude Fable 5</b>.</div>
+                            <button
+                                onClick={async () => {
+                                    try {
+                                        await ensurePuter();
+                                        const c = loadBrain(); c.provider = 'puter'; saveBrain(c);
+                                        pushMessage({ id: uid(), kind: 'card', title: 'PUTER CONNECTED', tone: 'ok', lines: ['You are signed in. Nexus now thinks with Claude Fable 5. Everything is saved in this browser.'], ts: stamp() });
+                                    } catch (e) {
+                                        pushMessage({ id: uid(), kind: 'card', title: 'SIGN-IN FAILED', tone: 'error', lines: [String(e.message || e)], ts: stamp() });
+                                    }
+                                }}
+                                className="w-full text-[11px] font-mono btn-primary text-white px-4 py-3 rounded-xl tracking-wider transition-all shadow-soft"
+                            >
+                                SIGN IN WITH PUTER → CLAUDE FABLE 5
+                            </button>
+                            <div className="text-[9px] text-stone-400 mt-2 leading-relaxed">Prefer keys? Open BRAIN and add a free Gemini or Groq key instead.</div>
+                        </div>
+                    );
+                }
                 if (m.kind === 'questions') {
                     return (
                         <div className="animate-fadeup">
@@ -1116,7 +1178,7 @@
                                 <button onClick={() => setShowRemote(true)} className="hidden md:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">PIPELINE</button>
                             </div>
                             <div className="md:hidden flex border-t border-cream-200">
-                                {[['chat', 'CHAT'], ['preview', 'VIEW'], ['files', 'FILES'], ['runs', 'RUNS'], ['memory', 'MEM']].map(([id, label]) => (
+                                {[['chat', 'CHAT'], ['chats', 'CHATS'], ['files', 'FILES'], ['runs', 'RUNS'], ['memory', 'MEM']].map(([id, label]) => (
                                     <button key={id} onClick={() => setActiveView(id)} className={'flex-1 py-2 text-[9px] font-mono tracking-wider transition-colors ' + (activeView === id ? 'text-ember-600 bg-ember-50' : 'text-stone-400')}>{label}</button>
                                 ))}
                             </div>
@@ -1128,6 +1190,24 @@
                             {/* Sidebar (desktop) */}
                             <aside className="hidden md:flex w-[250px] xl:w-[280px] flex-col border-r border-cream-300 glass shrink-0">
                                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
+                                    <div>
+                                        <div className="flex items-center justify-between px-1 mb-1.5">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">CHATS</span>
+                                            <button onClick={newChat} className="text-[10px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 rounded-md px-2 py-0.5 transition-all">+ NEW</button>
+                                        </div>
+                                        <div className="bg-white/70 border border-cream-300 rounded-xl p-1.5 space-y-0.5">
+                                            {chats.length === 0 && <div className="text-[10px] font-mono text-stone-400 px-2 py-1">No chats yet.</div>}
+                                            {chats.slice().reverse().map(c => (
+                                                <div key={c.id} className={'flex items-center gap-1 rounded-lg px-2 py-1.5 transition-colors ' + (c.id === activeChatId ? 'bg-ember-50 border border-ember-200' : 'hover:bg-cream-100 border border-transparent')}>
+                                                    <button onClick={() => switchChat(c.id)} className="flex-1 text-left min-w-0">
+                                                        <div className="text-[11px] font-mono text-stone-700 truncate">{c.title}</div>
+                                                        <div className="text-[8px] font-mono text-stone-400 truncate">{(c.messages || []).filter(m => m.role === 'user').length} msgs · {c.created ? new Date(c.created).toLocaleDateString() : ''}</div>
+                                                    </button>
+                                                    <button onClick={() => deleteChat(c.id)} title="Delete chat" className="text-stone-300 hover:text-red-400 px-1 transition-colors text-[12px]">×</button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <div>
                                         <div className="flex items-center justify-between px-1 mb-1.5">
                                             <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">WORKSPACE</span>
@@ -1172,7 +1252,7 @@
                             <main className="flex-1 flex flex-col min-w-0">
 
                                 {/* CHAT */}
-                                <div className={'flex-1 min-h-0 flex flex-col ' + (activeView === 'chat' ? 'flex' : 'hidden md:flex')}>
+                                <div className={'flex-1 min-h-0 flex flex-col ' + (activeView === 'chat' ? 'flex' : 'hidden')}>
                                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-8 py-5 space-y-4 max-w-3xl w-full mx-auto">
                                         {messages.map(renderMessage)}
                                         {busy && (
@@ -1242,8 +1322,28 @@
                                     </div>
                                 </div>
 
+                                {/* CHATS (mobile list) */}
+                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'chats' ? 'flex' : 'hidden')}>
+                                    <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">CONVERSATIONS</span>
+                                            <button onClick={newChat} className="text-[10px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 rounded-lg px-3 py-1.5 transition-all">+ NEW CHAT</button>
+                                        </div>
+                                        {chats.length === 0 && <div className="text-[11px] font-mono text-stone-400">No chats yet. Tap + NEW CHAT.</div>}
+                                        {chats.slice().reverse().map(c => (
+                                            <div key={c.id} className={'flex items-center gap-2 bg-white/80 border rounded-2xl px-4 py-3 shadow-soft transition-all ' + (c.id === activeChatId ? 'border-ember-300' : 'border-cream-300')}>
+                                                <button onClick={() => switchChat(c.id)} className="flex-1 text-left min-w-0">
+                                                    <div className="text-[12px] font-mono text-stone-700 truncate">{c.title}</div>
+                                                    <div className="text-[9px] font-mono text-stone-400 truncate">{(c.messages || []).filter(m => m.role === 'user').length} messages</div>
+                                                </button>
+                                                <button onClick={() => deleteChat(c.id)} className="text-stone-300 hover:text-red-400 px-2 text-lg">×</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 {/* PREVIEW */}
-                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'preview' ? 'flex' : 'hidden md:flex')}>
+                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'preview' ? 'flex' : 'hidden')}>
                                     <div className="flex-1 min-h-0 overflow-hidden p-3 flex flex-col">
                                         <div className="flex items-center gap-2.5 mb-2 shrink-0">
                                             <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">LIVE PREVIEW</span>
@@ -1273,7 +1373,7 @@
                                 </div>
 
                                 {/* FILES */}
-                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'files' ? 'flex' : 'hidden md:flex')}>
+                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'files' ? 'flex' : 'hidden')}>
                                     <div className="flex-1 min-h-0 overflow-hidden p-3 flex flex-col">
                                         <div className="flex items-center gap-2 mb-2 shrink-0">
                                             <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">WORKSPACE TREE</span>
@@ -1299,7 +1399,7 @@
                                 </div>
 
                                 {/* RUNS */}
-                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'runs' ? 'flex' : 'hidden md:flex')}>
+                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'runs' ? 'flex' : 'hidden')}>
                                     <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
                                         <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">BACKGROUND PIPELINE RUNS</span>
                                         {runs.length === 0 && <div className="text-[11px] font-mono text-stone-400">No runs found.</div>}
@@ -1317,7 +1417,7 @@
                                 </div>
 
                                 {/* MEMORY (mobile) */}
-                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'memory' ? 'flex' : 'hidden md:flex')}>
+                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'memory' ? 'flex' : 'hidden')}>
                                     <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
                                         <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">RECURSIVE MEMORY</span>
                                         {memoryData && (
