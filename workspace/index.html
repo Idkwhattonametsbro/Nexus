@@ -14,29 +14,10 @@
         tailwind.config = {
             theme: {
                 extend: {
-                    fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'monospace'],
-                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
                     colors: {
-                        cream: {
-                            50: '#FDFCFA',
-                            100: '#FAF8F4',
-                            200: '#F4EFE7',
-                            300: '#EBE4D8',
-                            400: '#DDD3C3',
-                            500: '#C9BFAE',
-                        },
-                        ember: {
-                            50: '#FFF7ED',
-                            100: '#FFEDD5',
-                            200: '#FED7AA',
-                            300: '#FDBA74',
-                            400: '#FB923C',
-                            500: '#F97316',
-                            600: '#EA580C',
-                            700: '#C2410C',
-                        },
+                        cream: { 50: '#FDFCFA', 100: '#FAF8F4', 200: '#F4EFE7', 300: '#EBE4D8', 400: '#DDD3C3', 500: '#C9BFAE' },
+                        ember: { 50: '#FFF7ED', 100: '#FFEDD5', 200: '#FED7AA', 300: '#FDBA74', 400: '#FB923C', 500: '#F97316', 600: '#EA580C', 700: '#C2410C' },
                     },
                     boxShadow: {
                         soft: '0 1px 2px rgba(28,25,23,0.05), 0 4px 14px rgba(28,25,23,0.06)',
@@ -47,10 +28,7 @@
                         fadeup: { '0%': { opacity: '0', transform: 'translateY(5px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
                         pulseDot: { '0%,100%': { opacity: '0.4' }, '50%': { opacity: '1' } },
                     },
-                    animation: {
-                        fadeup: 'fadeup 0.28s ease-out both',
-                        pulseDot: 'pulseDot 1.2s ease-in-out infinite',
-                    },
+                    animation: { fadeup: 'fadeup 0.28s ease-out both', pulseDot: 'pulseDot 1.2s ease-in-out infinite' },
                 },
             },
         }
@@ -62,14 +40,13 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #D9D2C4; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #C4BBA9; }
         ::selection { background: rgba(253, 186, 116, 0.45); }
-        #monaco-container { width: 100%; height: 100%; }
         .brand-gradient { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
         .btn-primary { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
         .btn-primary:hover { filter: brightness(1.06); }
         .glow-active { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.30), 0 0 16px rgba(249, 115, 22, 0.20); }
         #particle-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
         .app-layer { position: relative; z-index: 10; }
-        .glass { background: rgba(253, 252, 250, 0.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        .glass { background: rgba(253, 252, 250, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
     </style>
 </head>
 <body>
@@ -83,80 +60,135 @@
         const API = 'https://api.github.com/repos/' + REPO;
 
         const MODES = [
-            { id: 'full', label: 'AUTONOMOUS' },
+            { id: 'autonomous', label: 'AUTONOMOUS' },
             { id: 'code', label: 'CODE' },
-            { id: 'research_only', label: 'RESEARCH' },
+            { id: 'research', label: 'RESEARCH' },
             { id: 'fast', label: 'FAST' },
         ];
 
-        const PIPELINE_STAGES = ['ROUTE', 'RESEARCH', 'GENERATE', 'COMPILE', 'REFLECT'];
-
         const QUICK_TASKS = [
-            'Build a minimalist portfolio landing page (cream white, orange accents)',
-            'Build a to-do app with localStorage (light premium design)',
-            'Build a kanban board with drag and drop',
-            'Analyze the architecture of an autonomous agent system',
+            'Build me a habit tracker with streaks',
+            'Make a pomodoro timer app',
+            'Build a personal portfolio page',
+            'What can you do?',
         ];
 
         function stamp() { const d = new Date(); const p = n => String(n).padStart(2, '0'); return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
         function uid() { return Math.random().toString(36).slice(2, 9); }
 
-        /* ============ PARTICLE BACKGROUND ============ */
+        /* ================= BRAIN ENGINE (browser-native agent) ================= */
+        const BRAIN_KEY = 'nexus_brain';
+        const MEMORY_KEY = 'nexus_chat_memory';
+
+        const PROVIDER_DEFS = {
+            groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free)' },
+            openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter' },
+            deepseek: { url: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-v4-flash', label: 'DeepSeek' },
+        };
+
+        function loadBrain() { try { return JSON.parse(localStorage.getItem(BRAIN_KEY)) || {} } catch (e) { return {} } }
+        function saveBrain(c) { try { localStorage.setItem(BRAIN_KEY, JSON.stringify(c)) } catch (e) {} }
+        function brainConfigured() { const c = loadBrain(); return !!(c.key && c.key.trim()); }
+
+        function loadChatMemory() { try { return JSON.parse(localStorage.getItem(MEMORY_KEY)) || [] } catch (e) { return [] } }
+        function addLesson(l) { const arr = loadChatMemory(); arr.push(l); try { localStorage.setItem(MEMORY_KEY, JSON.stringify(arr.slice(-10))) } catch (e) {} }
+
+        function parseJson(content) {
+            let c = (content || '').trim();
+            try { return JSON.parse(c); } catch (e) {}
+            const m = c.match(/```(?:json)?\s*([\s\S]*?)```/);
+            if (m) { try { return JSON.parse(m[1].trim()) } catch (e) {} }
+            const s = c.indexOf('{'), e = c.lastIndexOf('}');
+            if (s >= 0 && e > s) { try { return JSON.parse(c.slice(s, e + 1)) } catch (_) {} }
+            throw new Error('Model did not return valid JSON.');
+        }
+
+        async function brainCall(messages, opts = {}) {
+            const cfg = loadBrain();
+            const provider = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'groq';
+            const def = PROVIDER_DEFS[provider];
+            const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
+            const headers = { 'Authorization': 'Bearer ' + (cfg.key || ''), 'Content-Type': 'application/json' };
+            if (provider === 'openrouter') { headers['HTTP-Referer'] = window.location.origin; headers['X-Title'] = 'Nexus Workspace'; }
+            const body = { model, messages, temperature: opts.temperature || 0.4 };
+            if (opts.jsonMode) body.response_format = { type: 'json_object' };
+            let res = await fetch(def.url, { method: 'POST', headers, body: JSON.stringify(body) });
+            if (!res.ok) {
+                const txt = await res.text();
+                if (res.status === 400 && opts.jsonMode) {
+                    delete body.response_format;
+                    res = await fetch(def.url, { method: 'POST', headers, body: JSON.stringify(body) });
+                    if (!res.ok) throw new Error('API ' + res.status + ': ' + txt.slice(0, 160));
+                } else {
+                    throw new Error('API ' + res.status + ': ' + txt.slice(0, 200));
+                }
+            }
+            const data = await res.json();
+            const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+            if (!content) throw new Error('Empty response from model.');
+            return opts.jsonMode ? parseJson(content) : content;
+        }
+
+        function buildSystemPrompt() {
+            const mem = loadChatMemory();
+            const memoryBlock = mem.length
+                ? '\n\n[Learned rules from prior sessions]\n' + mem.map(l => '- ' + l).join('\n')
+                : '';
+            return (
+                'You are Nexus, an autonomous software engineering agent embedded in a chat workspace. ' +
+                'You build complete, polished single-file web apps (all HTML/CSS/JS inline), tools, dashboards, and technical analyses. ' +
+                '\n\nBEHAVIOR' +
+                '\n- Be concise but warm. Explain what you will build before building it.' +
+                '\n- If a request is ambiguous or too large, do NOT guess: set status "clarify" and give 2-4 concrete questions.' +
+                '\n- Put 3-6 short reasoning bullets in "reasoning" before acting.' +
+                '\n- When building, produce ONE complete standalone artifact in "artifact". Never truncate code. No external dependencies unless requested.' +
+                '\n- Default design language (unless the user asks otherwise): light premium - creamy white background, soft warm borders, rounded corners, orange accents (#F97316), clean Inter typography.' +
+                '\n- After producing an artifact set status "artifact". A review pass will critique it; accept the feedback.' +
+                '\n- Never invent credentials, links, or claim actions you did not perform.' +
+                '\n- Keep replies under ~120 words unless writing code.' +
+                '\n\nOUTPUT: Respond with STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"artifact"|"done", "questions": ["..."], "artifact": {"filename": "app.html", "language": "html", "content": "..."}}' +
+                memoryBlock
+            );
+        }
+
+        const REVIEW_SYSTEM =
+            'You are Nexus Review, a senior design engineer. Critique a generated artifact against its directive. ' +
+            'Return STRICT JSON: {"decision": "approve"|"fix", "issues": ["..."], "improved": {"filename": "...", "content": "..."}} ' +
+            'If decision is "fix", provide the COMPLETE improved standalone artifact in "improved". ' +
+            'If "approve", "improved" may be null. Never truncate code.';
+
+        const LESSON_SYSTEM =
+            'Extract ONE concise objective rule (1 sentence max) about code quality or format from the given task and artifact. ' +
+            'If nothing notable, output {"lesson": null}. Return STRICT JSON only.';
+
+        /* ================= PARTICLE BACKGROUND ================= */
         function ParticleCanvas() {
             const ref = useRef(null);
             useEffect(() => {
                 const canvas = ref.current;
                 const ctx = canvas.getContext('2d');
                 let raf, particles = [], w, h, dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-                const resize = () => {
-                    w = canvas.clientWidth; h = canvas.clientHeight;
-                    canvas.width = w * dpr; canvas.height = h * dpr;
-                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                };
-                const count = () => (w < 768 ? 42 : 85);
-
-                const seed = () => {
-                    const n = count();
-                    particles = Array.from({ length: n }, () => ({
-                        x: Math.random() * w,
-                        y: Math.random() * h,
-                        vx: (Math.random() - 0.5) * 0.25,
-                        vy: (Math.random() - 0.5) * 0.25,
-                        r: 1 + Math.random() * 2.2,
-                        warm: Math.random() < 0.6,
-                    }));
-                };
-
+                const resize = () => { w = canvas.clientWidth; h = canvas.clientHeight; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+                const seed = () => { const n = w < 768 ? 42 : 85; particles = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: 1 + Math.random() * 2.2, warm: Math.random() < 0.6 })); };
                 const step = () => {
                     ctx.clearRect(0, 0, w, h);
                     for (const p of particles) {
                         p.x += p.vx; p.y += p.vy;
                         if (p.x < -10) p.x = w + 10; if (p.x > w + 10) p.x = -10;
                         if (p.y < -10) p.y = h + 10; if (p.y > h + 10) p.y = -10;
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-                        ctx.fillStyle = p.warm ? 'rgba(249,115,22,0.28)' : 'rgba(120,105,85,0.20)';
-                        ctx.fill();
+                        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                        ctx.fillStyle = p.warm ? 'rgba(249,115,22,0.28)' : 'rgba(120,105,85,0.20)'; ctx.fill();
                     }
-                    for (let i = 0; i < particles.length; i++) {
-                        for (let j = i + 1; j < particles.length; j++) {
-                            const a = particles[i], b = particles[j];
-                            const dx = a.x - b.x, dy = a.y - b.y;
-                            const d2 = dx * dx + dy * dy;
-                            if (d2 < 130 * 130) {
-                                const alpha = (1 - Math.sqrt(d2) / 130) * 0.14;
-                                ctx.beginPath();
-                                ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-                                ctx.strokeStyle = 'rgba(234,88,12,' + alpha + ')';
-                                ctx.lineWidth = 1;
-                                ctx.stroke();
-                            }
+                    for (let i = 0; i < particles.length; i++) for (let j = i + 1; j < particles.length; j++) {
+                        const a = particles[i], b = particles[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
+                        if (d2 < 130 * 130) {
+                            const alpha = (1 - Math.sqrt(d2) / 130) * 0.14;
+                            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+                            ctx.strokeStyle = 'rgba(234,88,12,' + alpha + ')'; ctx.lineWidth = 1; ctx.stroke();
                         }
                     }
                     raf = requestAnimationFrame(step);
                 };
-
                 resize(); seed(); step();
                 const onResize = () => { resize(); seed(); };
                 window.addEventListener('resize', onResize);
@@ -165,69 +197,15 @@
             return <canvas id="particle-canvas" ref={ref}></canvas>;
         }
 
-        /* ============ FILE TREE ============ */
-        function FileTree({ tree, hidden, onOpenFile }) {
-            const folders = {};
-            const files = [];
-            (tree || []).forEach(t => {
-                if (t.type !== 'blob') return;
-                const parts = t.path.split('/');
-                if (parts.length === 1) files.push(t);
-                else { (folders[parts[0]] = folders[parts[0]] || []).push(t); }
-            });
-            const sorted = Object.keys(folders).sort();
-            const extColor = name => {
-                if (name.endsWith('.py')) return 'text-ember-600';
-                if (name.endsWith('.html')) return 'text-ember-500';
-                if (name.endsWith('.js')) return 'text-amber-600';
-                if (name.endsWith('.json')) return 'text-stone-400';
-                if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'text-stone-500';
-                return 'text-stone-500';
-            };
-            return (
-                <div className="text-[11px] font-mono">
-                    {sorted.map(f => (
-                        <div key={f} className="mb-2">
-                            <div className="text-[9px] tracking-[0.15em] text-stone-400 mb-1 px-1">/{f}</div>
-                            {folders[f].map(t => {
-                                const base = t.path.split('/').slice(1).join('/');
-                                return (
-                                    <button key={t.path} onClick={() => onOpenFile && onOpenFile(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500">
-                                        <span className={'text-[10px] ' + extColor(t.path)}>▸</span>
-                                        <span className="truncate flex-1">{base}</span>
-                                        <span className="text-[9px] text-stone-400">{t.size ? Math.max(1, Math.round(t.size / 1024)) + 'k' : ''}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    ))}
-                    {files.length > 0 && (
-                        <div className="mb-2">
-                            <div className="text-[9px] tracking-[0.15em] text-stone-400 mb-1 px-1">/ROOT</div>
-                            {files.filter(f => hidden || !f.path.startsWith('.')).map(t => (
-                                <button key={t.path} onClick={() => onOpenFile && onOpenFile(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500">
-                                    <span className={'text-[10px] ' + extColor(t.path)}>▸</span>
-                                    <span className="truncate flex-1">{t.path}</span>
-                                    <span className="text-[9px] text-stone-400">{t.size ? Math.max(1, Math.round(t.size / 1024)) + 'k' : ''}</span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        /* ============ APP ============ */
+        /* ================= APP ================= */
         function App() {
-            const [activeView, setActiveView] = useState('chat'); // chat | files | runs | memory (mobile)
+            const [activeView, setActiveView] = useState('chat');
             const [chatInput, setChatInput] = useState('');
-            const [messages, setMessages] = useState([
-                { id: uid(), role: 'system', text: 'Nexus Agent initialized. Awaiting architecture instructions.', ts: stamp() },
-                { id: uid(), role: 'agent', text: 'I am Nexus. Describe what you want built and I will plan, generate, review, and deploy it through the autonomous pipeline. Try a quick task below or type your own directive.', ts: stamp() },
-            ]);
-            const [isProcessing, setIsProcessing] = useState(false);
-            const [mode, setMode] = useState('full');
+            const [messages, setMessages] = useState([]);
+            const [busy, setBusy] = useState(false);
+            const [mode, setMode] = useState('autonomous');
             const [providerTag, setProviderTag] = useState('--');
+            const [expandedThought, setExpandedThought] = useState(null);
             const [memoryData, setMemoryData] = useState(null);
             const [memoryEpoch, setMemoryEpoch] = useState(0);
             const [tree, setTree] = useState(null);
@@ -236,115 +214,243 @@
             const [runs, setRuns] = useState([]);
             const [lastRun, setLastRun] = useState(null);
             const [previewHtml, setPreviewHtml] = useState(null);
+            const [showSettings, setShowSettings] = useState(false);
+            const [brainCfg, setBrainCfg] = useState(loadBrain());
+            const [testResult, setTestResult] = useState('');
             const [showRemote, setShowRemote] = useState(false);
             const [remoteToken, setRemoteToken] = useState('');
             const [remoteDirective, setRemoteDirective] = useState('');
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
             const [openFile, setOpenFile] = useState(null);
-            const [expandedThought, setExpandedThought] = useState(null);
+            const [showStream, setShowStream] = useState(false);
             const editorRef = useRef(null);
             const chatScrollRef = useRef(null);
+            const messagesRef = useRef(messages);
+            messagesRef.current = messages;
 
-            /* Monaco */
+            const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
+            const updateMessage = useCallback((id, patch) => setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m)), []);
+
+            /* ---- boot ---- */
             useEffect(() => {
-                require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' }});
-                require(['vs/editor/editor.main'], function() {
-                    monaco.editor.defineTheme('nexus-light', {
-                        base: 'vs', inherit: true, rules: [],
-                        colors: {
-                            'editor.background': '#FAF8F4',
-                            'editor.lineHighlightBackground': '#F3EEE6',
-                            'editorLineNumber.foreground': '#C7C0B4',
-                            'editorLineNumber.activeForeground': '#8A857C',
-                            'editorCursor.foreground': '#F97316',
-                            'editor.selectionBackground': '#FED7AA',
-                            'editorIndentGuide.background': '#EAE3D6',
-                            'editorIndentGuide.activeBackground': '#D6CFC2',
-                            'minimap.background': '#FAF8F4',
-                        }
-                    });
-                    editorRef.current = monaco.editor.create(document.getElementById('monaco-container'), {
-                        value: '// Select a file from the workspace tree to inspect it.\n',
-                        language: 'plaintext',
-                        theme: 'nexus-light',
-                        minimap: { enabled: false },
-                        fontFamily: 'JetBrains Mono',
-                        fontSize: 12,
-                        lineHeight: 19,
-                        padding: { top: 12 },
-                        readOnly: true,
-                        scrollBeyondLastLine: false,
-                    });
-                });
+                const boot = [];
+                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Brain engine online.', ts: stamp() });
+                if (brainConfigured()) {
+                    boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus. I plan, build, review, fix and deliver working apps right here in this chat. Ask me to build something, or tap a quick task below.', ts: stamp() });
+                } else {
+                    boot.push({ id: uid(), kind: 'card', title: 'BRAIN SETUP REQUIRED', tone: 'warn', lines: ['To think and build, Nexus needs an LLM key in THIS browser (stored locally only).', 'Paste your Groq key (free) in SETTINGS, or use an OpenRouter key.', 'Your GitHub secrets are never exposed to the browser.'], ts: stamp() });
+                }
+                setMessages(boot);
+                try { setRemoteToken(localStorage.getItem('nexus_remote_token') || '') } catch (e) {}
             }, []);
 
+            /* ---- data feeds ---- */
             useEffect(() => {
-                if (activeView === 'files' && editorRef.current) setTimeout(() => editorRef.current.layout(), 50);
-            }, [activeView, openFile]);
-
-            /* Memory */
-            useEffect(() => {
-                fetch('config/lessons_learned.json', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject())
-                    .then(setMemoryData).catch(() => setMemoryData(null));
+                fetch('config/lessons_learned.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(setMemoryData).catch(() => setMemoryData(null));
+                fetch(API + '/git/trees/main?recursive=1', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setTree(d.tree || [])).catch(() => setTree(null));
+                fetch('../output/latest_manifest.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(setLastRun).catch(() => setLastRun(null));
+                fetch('../output/latest_app.html', { cache: 'no-store' }).then(r => r.ok ? r.text() : Promise.reject()).then(setPreviewHtml).catch(() => setPreviewHtml(null));
+                fetch(API + '/actions/runs?per_page=8', { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setRuns(d.workflow_runs || [])).catch(() => setRuns([]));
             }, [memoryEpoch]);
 
-            /* File tree */
-            useEffect(() => {
-                fetch(API + '/git/trees/main?recursive=1', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject())
-                    .then(d => setTree(d.tree || []))
-                    .catch(() => setTree(null));
-            }, [treeEpoch]);
-
-            /* Runs + preview */
-            useEffect(() => {
-                fetch('../output/latest_manifest.json', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject()).then(setLastRun).catch(() => setLastRun(null));
-                fetch('../output/latest_app.html', { cache: 'no-store' })
-                    .then(r => r.ok ? r.text() : Promise.reject()).then(setPreviewHtml).catch(() => setPreviewHtml(null));
-                fetch(API + '/actions/runs?per_page=8', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject())
-                    .then(d => setRuns(d.workflow_runs || []))
-                    .catch(() => setRuns([]));
-            }, [memoryEpoch]);
-
-            useEffect(() => {
-                if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-            }, [messages]);
-
-            // Keep the composer visible when the mobile keyboard opens
+            useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [messages]);
             useEffect(() => {
                 const vv = window.visualViewport;
                 if (!vv) return;
                 const onResize = () => {
-                    const composer = document.getElementById('nexus-composer');
-                    if (vv.height < window.innerHeight - 120 && composer) {
-                        setTimeout(() => composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120);
-                    }
+                    const c = document.getElementById('nexus-composer');
+                    if (vv.height < window.innerHeight - 120 && c) setTimeout(() => c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120);
                 };
                 vv.addEventListener('resize', onResize);
                 return () => vv.removeEventListener('resize', onResize);
             }, []);
 
-            const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
+            /* ---- Monaco ---- */
+            useEffect(() => {
+                require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' } });
+                require(['vs/editor/editor.main'], function () {
+                    monaco.editor.defineTheme('nexus-light', {
+                        base: 'vs', inherit: true, rules: [],
+                        colors: {
+                            'editor.background': '#FAF8F4', 'editor.lineHighlightBackground': '#F3EEE6',
+                            'editorLineNumber.foreground': '#C7C0B4', 'editorLineNumber.activeForeground': '#8A857C',
+                            'editorCursor.foreground': '#F97316', 'editor.selectionBackground': '#FED7AA',
+                            'editorIndentGuide.background': '#EAE3D6', 'editorIndentGuide.activeBackground': '#D6CFC2',
+                            'minimap.background': '#FAF8F4',
+                        },
+                    });
+                    editorRef.current = monaco.editor.create(document.getElementById('monaco-container'), {
+                        value: '// Select a file from the workspace tree to inspect it.\n', language: 'plaintext',
+                        theme: 'nexus-light', minimap: { enabled: false }, fontFamily: 'JetBrains Mono',
+                        fontSize: 12, lineHeight: 19, padding: { top: 12 }, readOnly: true, scrollBeyondLastLine: false,
+                    });
+                });
+            }, []);
+            useEffect(() => { if (activeView === 'files' && editorRef.current) setTimeout(() => editorRef.current.layout(), 50); }, [activeView, openFile]);
 
             const openFileContent = (path) => {
-                setOpenFile(path);
-                setActiveView('files');
+                setOpenFile(path); setActiveView('files');
                 fetch('https://raw.githubusercontent.com/' + REPO + '/main/' + path, { cache: 'no-store' })
-                    .then(r => r.ok ? r.text() : Promise.reject())
-                    .then(txt => {
+                    .then(r => r.ok ? r.text() : Promise.reject()).then(txt => {
                         const lang = path.endsWith('.py') ? 'python' : path.endsWith('.html') ? 'html' : path.endsWith('.js') ? 'javascript' : path.endsWith('.json') ? 'json' : path.endsWith('.yml') || path.endsWith('.yaml') ? 'yaml' : path.endsWith('.css') ? 'css' : path.endsWith('.md') ? 'markdown' : 'plaintext';
                         if (editorRef.current) { monaco.editor.setModelLanguage(editorRef.current.getModel(), lang); editorRef.current.setValue(txt); }
-                    })
-                    .catch(() => { if (editorRef.current) editorRef.current.setValue('// Failed to load ' + path); });
+                    }).catch(() => { if (editorRef.current) editorRef.current.setValue('// Failed to load ' + path); });
             };
 
-            /* Remote dispatch */
-            useEffect(() => { try { setRemoteToken(localStorage.getItem('nexus_remote_token') || ''); } catch (e) {} }, []);
+            /* ================= AGENT CORE ================= */
+            const downloadBlob = (content, filename) => {
+                const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = filename;
+                document.body.appendChild(a); a.click();
+                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+            };
 
+            const exportChat = () => {
+                const lines = messages.map(m => {
+                    if (m.kind === 'thought') return '## Thought (' + m.secs + 's)\n' + (m.lines || []).map(l => '- ' + l).join('\n');
+                    if (m.kind === 'card') return '## [' + m.title + ']\n' + (m.lines || []).join('\n');
+                    if (m.kind === 'artifact') return '## Artifact: ' + m.filename + ' (iterations ' + (m.iterations || 1) + ')\n```html\n' + (m.content || '').slice(0, 4000) + '\n```';
+                    if (m.role === 'user') return '## You (' + m.ts + ')\n' + m.text;
+                    return '## Nexus (' + m.ts + ')\n' + (m.text || '');
+                }).join('\n\n---\n\n');
+                downloadBlob('# Nexus Session Export\n\n' + lines, 'nexus-chat-' + Date.now() + '.md');
+            };
+
+            const saveToRepo = async (filename, content) => {
+                const token = remoteToken.trim() || (loadBrain().githubToken || '');
+                if (!token) throw new Error('No GitHub token. Open REMOTE and paste a fine-grained token (Contents read/write).');
+                const path = 'chat-outputs/' + filename;
+                let sha = null;
+                try {
+                    const g = await fetch(API + '/contents/' + path, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' } });
+                    if (g.ok) sha = (await g.json()).sha;
+                } catch (e) {}
+                const res = await fetch(API + '/contents/' + path, {
+                    method: 'PUT',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'nexus: chat artifact ' + filename, content: btoa(unescape(encodeURIComponent(content))), sha }),
+                });
+                if (!res.ok) throw new Error('GitHub ' + res.status);
+                return 'https://github.com/' + REPO + '/blob/main/' + path;
+            };
+
+            const runReviewLoop = async (artId, directive, artifact) => {
+                let current = artifact;
+                for (let i = 0; i < 3; i++) {
+                    pushMessage({ id: uid(), kind: 'card', title: 'REVIEW PASS ' + (i + 1), tone: 'info', lines: ['Critiquing artifact against directive...'], ts: stamp() });
+                    let rev;
+                    try {
+                        rev = await brainCall([
+                            { role: 'system', content: REVIEW_SYSTEM },
+                            { role: 'user', content: 'DIRECTIVE:\n' + directive + '\n\nARTIFACT:\n' + current.content },
+                        ], { jsonMode: true, temperature: 0.2 });
+                    } catch (e) {
+                        pushMessage({ id: uid(), kind: 'card', title: 'REVIEW ERROR', tone: 'error', lines: [String(e.message || e)], ts: stamp() });
+                        return;
+                    }
+                    if (rev.decision === 'approve') {
+                        updateMessage(artId, { review: { decision: 'approve', issues: [] } });
+                        pushMessage({ id: uid(), kind: 'card', title: 'REVIEW APPROVED', tone: 'ok', lines: ['Artifact passed the quality review.'], ts: stamp() });
+                        return;
+                    }
+                    const issues = (rev.issues || []).slice(0, 5);
+                    updateMessage(artId, { review: { decision: 'fix', issues } });
+                    pushMessage({ id: uid(), kind: 'card', title: 'REVIEW FOUND ISSUES', tone: 'warn', lines: issues.length ? issues.map(s => '• ' + s) : ['• Unspecified quality issues'], ts: stamp() });
+                    const improved = rev.improved && rev.improved.content;
+                    if (!improved) {
+                        pushMessage({ id: uid(), kind: 'card', title: 'FIX NOT PROVIDED', tone: 'warn', lines: ['Review requested fixes but returned no improved artifact. Delivering as-is.'], ts: stamp() });
+                        return;
+                    }
+                    current = { filename: (rev.improved.filename || current.filename), language: current.language, content: improved };
+                    updateMessage(artId, { content: improved, filename: current.filename, iterations: (i + 2) });
+                    pushMessage({ id: uid(), kind: 'card', title: 'ITERATION ' + (i + 2) + ' APPLIED', tone: 'info', lines: ['Improved artifact generated from review feedback.'], ts: stamp() });
+                }
+                pushMessage({ id: uid(), kind: 'card', title: 'MAX ITERATIONS (3)', tone: 'warn', lines: ['Loop limit reached. Delivering the artifact as-is.'], ts: stamp() });
+            };
+
+            const maybeLearnLesson = async (directive, content) => {
+                try {
+                    const out = await brainCall([
+                        { role: 'system', content: LESSON_SYSTEM },
+                        { role: 'user', content: 'TASK:\n' + directive + '\n\nARTIFACT SNIPPET:\n' + content.slice(0, 1500) },
+                    ], { jsonMode: true, temperature: 0.1 });
+                    if (out && out.lesson) {
+                        addLesson(out.lesson);
+                        pushMessage({ id: uid(), kind: 'card', title: 'MEMORY UPDATED', tone: 'ok', lines: ['Learned: ' + out.lesson], ts: stamp() });
+                    }
+                } catch (e) {}
+            };
+
+            const agentTurn = async (userText) => {
+                setBusy(true);
+                const t0 = performance.now();
+                const thoughtId = uid();
+                pushMessage({ id: thoughtId, kind: 'thought', secs: '...', lines: [], ts: stamp() });
+                try {
+                    const hist = messagesRef.current
+                        .filter(m => m.role)
+                        .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
+                        .slice(-12);
+                    const out = await brainCall([
+                        { role: 'system', content: buildSystemPrompt() },
+                        ...hist,
+                        { role: 'user', content: userText },
+                    ], { jsonMode: true, temperature: 0.4 });
+                    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+                    updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
+                    setProviderTag(loadBrain().provider ? loadBrain().provider.toUpperCase() : '--');
+                    if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, ts: stamp() });
+                    if (out.status === 'clarify' && Array.isArray(out.questions) && out.questions.length) {
+                        pushMessage({ id: uid(), kind: 'questions', items: out.questions.slice(0, 4), ts: stamp() });
+                    }
+                    if (out.artifact && out.artifact.content) {
+                        const art = out.artifact;
+                        const artId = uid();
+                        pushMessage({ id: artId, kind: 'artifact', filename: art.filename || 'app.html', lang: (art.language || 'html').toUpperCase(), content: art.content, summary: art.summary || '', iterations: [1], review: null, ts: stamp() });
+                        await runReviewLoop(artId, userText, art);
+                        const finalMsg = messagesRef.current.find(m => m.id === artId);
+                        if (finalMsg && finalMsg.content) maybeLearnLesson(userText, finalMsg.content);
+                    }
+                } catch (err) {
+                    updateMessage(thoughtId, { secs: '0.0', lines: ['Engine call failed.'] });
+                    pushMessage({ id: uid(), kind: 'card', title: 'ENGINE ERROR', tone: 'error', lines: [String(err.message || err)], ts: stamp() });
+                } finally {
+                    setBusy(false);
+                }
+            };
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!chatInput.trim() || busy) return;
+                if (!brainConfigured()) {
+                    setShowSettings(true);
+                    pushMessage({ id: uid(), kind: 'card', title: 'BRAIN NOT CONFIGURED', tone: 'warn', lines: ['Open SETTINGS and paste an LLM API key to enable the agent. Groq is free.'], ts: stamp() });
+                    return;
+                }
+                const text = chatInput.trim();
+                setChatInput('');
+                pushMessage({ id: uid(), role: 'user', text, ts: stamp() });
+                agentTurn(text);
+            };
+
+            /* ---- settings ---- */
+            const saveBrainCfg = () => {
+                saveBrain(brainCfg);
+                setShowSettings(false);
+                pushMessage({ id: uid(), kind: 'card', title: 'BRAIN CONFIGURED', tone: 'ok', lines: ['Provider: ' + (PROVIDER_DEFS[brainCfg.provider] || {}).label + ' · Model: ' + (brainCfg.model || (PROVIDER_DEFS[brainCfg.provider] || {}).defaultModel)], ts: stamp() });
+            };
+            const testBrain = async () => {
+                setTestResult('TESTING...');
+                try {
+                    const out = await brainCall([{ role: 'user', content: 'Reply with JSON: {"ok": true}' }], { jsonMode: true, temperature: 0 });
+                    setTestResult('CONNECTION OK: ' + JSON.stringify(out));
+                } catch (e) { setTestResult('FAILED: ' + (e.message || e)); }
+            };
+
+            /* ---- remote pipeline ---- */
             const handleRemoteDispatch = async () => {
                 if (!remoteToken.trim() || !remoteDirective.trim() || remoteBusy) return;
                 setRemoteBusy(true); setRemoteStatus('DISPATCHING...');
@@ -352,10 +458,10 @@
                     const res = await fetch(API + '/actions/workflows/run_agent.yml/dispatches', {
                         method: 'POST',
                         headers: { 'Authorization': 'Bearer ' + remoteToken.trim(), 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ref: 'main', inputs: { prompt: remoteDirective.trim(), mode } }),
+                        body: JSON.stringify({ ref: 'main', inputs: { prompt: remoteDirective.trim(), mode: 'full' } }),
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
-                    try { localStorage.setItem('nexus_remote_token', remoteToken.trim()); } catch (e) {}
+                    try { localStorage.setItem('nexus_remote_token', remoteToken.trim()) } catch (e) {}
                     setRemoteStatus('RUN STARTED - TRACKING...');
                     let run = null;
                     for (let i = 0; i < 10; i++) {
@@ -376,162 +482,71 @@
                 finally { setRemoteBusy(false); }
             };
 
-            /* ===== Intent detection: chat vs build directive ===== */
-            const CHAT_INTENT = /^(hey|hi|hello|yo|hiya|good (morning|afternoon|evening)|thanks|thank you|wow|nice|great|ok|okay|wth|wtf|what|who|why|how|can you|are you|do you|whats up|lol|haha|no|yes|sure|help)\b/i;
-            const BUILD_INTENT = /build|make|create|generate|write|code|app|page|dashboard|tool|tracker|board|website|landing|portfolio|repo|todo|kanban|timer|calculator|ui/i;
-            const CHAT_REPLIES = [
-                "Hey! I'm Nexus - an autonomous engineering agent. I plan, generate, review, and deploy single-file apps through a live pipeline, and I remember a lesson from every run. Send me a directive like 'build me a habit tracker' or tap a quick task below.",
-                "Yo! Glad you're here. I can build dashboards, tools, trackers and mini-apps - with a review pass, recursive memory, and a live preview canvas. What should we build?",
-                "Hi! I'm Nexus. Give me a build directive and I'll route it through the swarm: plan, generate, review, deploy, then learn from it. Or ask me anything about the system.",
-            ];
-
-            const thoughtLinesFor = (directive) => {
-                const lower = directive.toLowerCase();
-                if (BUILD_INTENT.test(lower)) {
-                    return [
-                        'Parsing directive and extracting build intent.',
-                        'Resolving provider chain: Groq -> DeepSeek -> OpenRouter -> OpenAI.',
-                        'Drafting architecture: single-file artifact, inline CSS, no external dependencies.',
-                        'Planning quality review pass after generation.',
-                    ];
-                }
-                return [
-                    'Parsing operator message.',
-                    'No build intent detected - classified as conversational.',
-                    'Composing direct response from available system context.',
-                ];
-            };
-
-            /* Simulated local pipeline (demo of the real GitHub pipeline) */
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                if (!chatInput.trim() || isProcessing) return;
-                const directive = chatInput.trim();
-                setChatInput('');
-                pushMessage({ id: uid(), role: 'user', text: directive, ts: stamp() });
-
-                const isChat = CHAT_INTENT.test(directive) && !BUILD_INTENT.test(directive);
-                const thoughtId = uid();
-                const thoughtSecs = (2.4 + Math.random() * 2.8).toFixed(1);
-
-                if (isChat) {
-                    setTimeout(() => pushMessage({
-                        id: thoughtId, kind: 'thought', secs: thoughtSecs,
-                        lines: thoughtLinesFor(directive), ts: stamp()
-                    }), 400);
-                    setTimeout(() => {
-                        setExpandedThought(thoughtId);
-                        pushMessage({
-                            id: uid(), role: 'agent',
-                            text: CHAT_REPLIES[Math.floor(Math.random() * CHAT_REPLIES.length)],
-                            ts: stamp()
-                        });
-                    }, 1600);
-                    return;
-                }
-
-                setIsProcessing(true);
-                const provider = Math.random() < 0.7 ? 'GROQ' : ['DEEPSEEK', 'OPENROUTER', 'OPENAI'][Math.floor(Math.random() * 3)];
-                setProviderTag(provider);
-                const thoughtLines = thoughtLinesFor(directive);
-
-                setTimeout(() => pushMessage({
-                    id: thoughtId, kind: 'thought', secs: thoughtSecs,
-                    lines: thoughtLines, ts: stamp()
-                }), 400);
-                setTimeout(() => {
-                    setExpandedThought(thoughtId);
-                    pushMessage({
-                        id: uid(), kind: 'command',
-                        lines: ['$ git add output/ config/lessons_learned.json',
-                                '$ git commit -m "system: execution output and memory update [skip ci]"',
-                                '> [Route] ' + provider + ' engaged - task routed to optimal provider',
-                                '> [System] Generating architecture output...',
-                                '> [System] Review pass applied an improved artifact.',
-                                '> [System] Recursive memory state updated.'],
-                        duration: (8 + Math.random() * 9).toFixed(1) + 's',
-                        ts: stamp()
-                    });
-                }, 2200);
-                setTimeout(() => {
-                    const stampTs = stamp();
-                    pushMessage({
-                        id: uid(), kind: 'file',
-                        name: 'app_' + Date.now() + '.html',
-                        lang: 'HTML',
-                        edits: Math.floor(2 + Math.random() * 3),
-                        meta: (lastRun && lastRun.provider) ? lastRun.provider + ' · ' + lastRun.model : 'PENDING RUN',
-                        content: previewHtml ? previewHtml.slice(0, 1600) : '<!-- No pipeline output yet. -->\n<!-- Dispatch a directive to generate the first app. -->',
-                        url: PAGES_ROOT + '/output/latest_app.html',
-                        ts: stampTs
-                    });
-                }, 5200);
-                setTimeout(() => {
-                    setIsProcessing(false); setProviderTag('--');
-                    setMemoryEpoch(e => e + 1);
-                    pushMessage({ id: uid(), role: 'agent', text: 'Task sequence completed. Report and artifacts committed to the repository. The live preview canvas now shows the generated app. Open the RUN LOG to inspect the full execution trace.', ts: stamp() });
-                }, 8000);
-            };
-
             const memoryLessons = (memoryData && memoryData.lessons) ? memoryData.lessons : [];
-            const statusPill = isProcessing
-                ? { label: 'PROCESSING', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
-                : { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' };
+            const chatMemory = loadChatMemory();
 
             const renderMessage = (m) => {
                 if (m.kind === 'thought') {
                     const open = expandedThought === m.id;
                     return (
                         <div className="animate-fadeup">
-                            <button
-                                onClick={() => setExpandedThought(open ? null : m.id)}
-                                className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 hover:text-ember-700 transition-colors group"
-                            >
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 hover:text-ember-700 transition-colors group">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" /><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
                                 Thought for {m.secs}s
-                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={`transition-transform ${open ? 'rotate-180' : ''} text-ember-400`}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                <span className="text-[9px] text-ember-400/70 group-hover:text-ember-600 transition-colors">{open ? 'HIDE REASONING' : 'VIEW REASONING'}</span>
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={'transition-transform ' + (open ? 'rotate-180' : '') + ' text-ember-400'}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                <span className="text-[9px] text-ember-400/70 group-hover:text-ember-600">{open ? 'HIDE' : 'VIEW REASONING'}</span>
                             </button>
                             {open && (
                                 <div className="mt-1.5 ml-1 rounded-xl border border-ember-200 bg-ember-50/70 px-3.5 py-3 space-y-1.5">
                                     <div className="text-[8px] font-mono tracking-[0.18em] text-ember-500">REASONING TRACE</div>
-                                    {(m.lines || []).map((l, i) => (
-                                        <div key={i} className="text-[11px] font-mono leading-relaxed text-ember-900/70">▸ {l}</div>
-                                    ))}
+                                    {(m.lines || []).map((l, i) => <div key={i} className="text-[11px] font-mono leading-relaxed text-ember-900/70">▸ {l}</div>)}
                                 </div>
                             )}
                         </div>
                     );
                 }
-                if (m.kind === 'command') {
+                if (m.kind === 'questions') {
                     return (
-                        <div className="rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden animate-fadeup">
-                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-cream-200 bg-cream-50">
-                                <span className="text-[9px] font-mono tracking-[0.15em] text-stone-400">EXECUTION · BASH</span>
-                                <span className="text-[9px] font-mono text-stone-400">{m.duration}</span>
-                            </div>
-                            <div className="px-3.5 py-2.5 font-mono text-[11px] leading-relaxed">
-                                {m.lines.map((l, i) => (
-                                    <div key={i} className={l.startsWith('$') ? 'text-stone-700' : l.startsWith('>') ? 'text-ember-700/70' : 'text-stone-400'}>{l}</div>
-                                ))}
-                            </div>
-                            <div className="flex items-center gap-2 px-3.5 py-2 border-t border-cream-200 text-[10px] font-mono">
-                                <span className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[8px]">✓</span>
-                                <span className="text-stone-500">exit 0</span>
-                            </div>
+                        <div className="animate-fadeup flex flex-wrap gap-2">
+                            {(m.items || []).map((q, i) => (
+                                <button key={i} onClick={() => { setChatInput(q); }} className="text-[11px] font-mono border border-ember-300 bg-ember-50 text-ember-700 hover:bg-ember-100 px-3 py-2 rounded-full transition-all">
+                                    {q}
+                                </button>
+                            ))}
                         </div>
                     );
                 }
-                if (m.kind === 'file') {
+                if (m.kind === 'card') {
+                    const toneCls = m.tone === 'ok' ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                        : m.tone === 'warn' ? 'border-amber-200 bg-amber-50/70 text-amber-800'
+                        : m.tone === 'error' ? 'border-red-200 bg-red-50/70 text-red-700'
+                        : 'border-ember-200 bg-ember-50/70 text-ember-800';
+                    return (
+                        <div className={'animate-fadeup rounded-xl border px-3.5 py-2.5 ' + toneCls}>
+                            <div className="text-[8px] font-mono tracking-[0.18em] opacity-70 mb-1">{m.title}</div>
+                            <div className="text-[11px] leading-relaxed space-y-0.5">{(m.lines || []).map((l, i) => <div key={i}>{l}</div>)}</div>
+                        </div>
+                    );
+                }
+                if (m.kind === 'artifact') {
                     return (
                         <div className="rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden animate-fadeup">
                             <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-cream-200 bg-cream-50">
-                                <span className="text-[10px] font-mono text-stone-700 truncate flex-1">{m.name}</span>
+                                <span className="text-[10px] font-mono text-stone-700 truncate flex-1">{m.filename}</span>
                                 <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-ember-100 text-ember-700 tracking-wider">{m.lang}</span>
-                                <span className="text-[9px] font-mono text-stone-400">×{m.edits}</span>
-                                <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-ember-600 hover:text-ember-700">OPEN ↗</a>
+                                <span className="text-[9px] font-mono text-stone-400">×{(m.iterations || 1)}</span>
+                                {m.review && m.review.decision === 'approve' && <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">APPROVED</span>}
+                                <span className="flex-1"></span>
+                                <button onClick={() => downloadBlob(m.content, m.filename)} className="text-[9px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 px-2 py-1 rounded-md">DOWNLOAD</button>
+                                <button onClick={() => { setPreviewHtml(m.content); setActiveView('preview'); }} className="text-[9px] font-mono text-stone-500 hover:text-ember-600">PREVIEW</button>
+                                <button onClick={async () => {
+                                    try {
+                                        const url = await saveToRepo(m.filename, m.content);
+                                        pushMessage({ id: uid(), kind: 'card', title: 'SAVED TO REPO', tone: 'ok', lines: [url], ts: stamp() });
+                                    } catch (e) { pushMessage({ id: uid(), kind: 'card', title: 'SAVE FAILED', tone: 'error', lines: [String(e.message || e)], ts: stamp() }); }
+                                }} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">SAVE↗</button>
                             </div>
-                            {m.meta && <div className="px-3.5 py-1.5 border-b border-cream-200 text-[9px] font-mono text-stone-400 bg-cream-50/60">PROVIDER {m.meta}</div>}
+                            {m.summary && <div className="px-3.5 py-1.5 border-b border-cream-200 text-[10px] text-stone-500 bg-cream-50/60">{m.summary}</div>}
                             <pre className="px-3.5 py-2.5 font-mono text-[10.5px] leading-relaxed text-stone-600 max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap">{m.content || '<!-- no content -->'}</pre>
                         </div>
                     );
@@ -554,6 +569,10 @@
                 );
             };
 
+            const statusPill = busy
+                ? { label: 'THINKING', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
+                : { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' };
+
             return (
                 <div className="h-screen w-full overflow-hidden">
                     <ParticleCanvas />
@@ -563,41 +582,31 @@
                         <header className="glass border-b border-cream-300 shrink-0 z-30">
                             <div className="flex items-center gap-2.5 px-4 h-13 lg:h-14">
                                 <div className="w-8 h-8 rounded-xl brand-gradient shadow-soft flex items-center justify-center shrink-0">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6"/></svg>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6" /></svg>
                                 </div>
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V5.0</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V6.0</span>
                                     </div>
-                                    <div className="text-[9px] text-stone-400 font-mono hidden sm:block">AUTONOMOUS SOFTWARE ENGINEERING AGENT</div>
+                                    <div className="text-[9px] text-stone-400 font-mono hidden sm:block">CHAT-NATIVE AUTONOMOUS AGENT</div>
                                 </div>
-
                                 <div className="flex-1"></div>
 
-                                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-cream-300 bg-white">
-                                    <span className="text-[9px] font-mono text-stone-400 tracking-wider mr-1">MODE</span>
-                                    <select value={mode} onChange={e => setMode(e.target.value)} className="text-[10px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer">
-                                        {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                    </select>
-                                </div>
-
-                                <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-mono tracking-wider transition-all ${statusPill.cls} ${isProcessing ? 'glow-active' : ''}`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full ${isProcessing ? 'bg-ember-500 animate-pulse' : 'bg-stone-300'}`}></span>
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-mono tracking-wider transition-all ${statusPill.cls} ${busy ? 'glow-active' : ''}`}>
+                                    <span className={'w-1.5 h-1.5 rounded-full ' + (busy ? 'bg-ember-500 animate-pulse' : 'bg-stone-300')}></span>
                                     {statusPill.label}
                                 </div>
 
-                                <a href={ACTIONS_URL} target="_blank" rel="noopener noreferrer" className="hidden lg:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">
-                                    DEPLOY
-                                </a>
-                                <button onClick={() => setShowRemote(true)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all">
-                                    REMOTE
+                                <button onClick={() => setShowSettings(true)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all" title="Brain settings">
+                                    {brainConfigured() ? 'BRAIN' : 'SETUP'}
                                 </button>
+                                <button onClick={exportChat} className="hidden md:block text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all">EXPORT</button>
+                                <button onClick={() => setShowRemote(true)} className="hidden md:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">PIPELINE</button>
                             </div>
-                            {/* Mobile view switcher */}
                             <div className="md:hidden flex border-t border-cream-200">
-                                {[['chat','CHAT'],['files','FILES'],['runs','RUNS'],['memory','MEM']].map(([id, label]) => (
-                                    <button key={id} onClick={() => setActiveView(id)} className={`flex-1 py-2 text-[9px] font-mono tracking-wider transition-colors ${activeView === id ? 'text-ember-600 bg-ember-50' : 'text-stone-400'}`}>{label}</button>
+                                {[['chat', 'CHAT'], ['preview', 'VIEW'], ['files', 'FILES'], ['runs', 'RUNS'], ['memory', 'MEM']].map(([id, label]) => (
+                                    <button key={id} onClick={() => setActiveView(id)} className={'flex-1 py-2 text-[9px] font-mono tracking-wider transition-colors ' + (activeView === id ? 'text-ember-600 bg-ember-50' : 'text-stone-400')}>{label}</button>
                                 ))}
                             </div>
                         </header>
@@ -617,64 +626,54 @@
                                             </div>
                                         </div>
                                         {tree ? (
-                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-2">
-                                                <FileTree tree={tree} hidden={treeHidden} onOpenFile={openFileContent} />
-                                                <div className="text-[9px] font-mono text-stone-400 px-1 pt-1.5 border-t border-cream-200 mt-1.5">{tree.length} FILES TRACKED</div>
+                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-2 text-[11px] font-mono">
+                                                {(tree || []).filter(t => t.type === 'blob').slice(0, 60).map(t => (
+                                                    <button key={t.path} onClick={() => openFileContent(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500">
+                                                        <span className="text-[10px]">▸</span>
+                                                        <span className="truncate flex-1">{t.path}</span>
+                                                    </button>
+                                                ))}
+                                                <div className="text-[9px] font-mono text-stone-400 px-1 pt-1.5 border-t border-cream-200 mt-1.5">{tree.filter(t => t.type === 'blob').length} FILES</div>
                                             </div>
-                                        ) : (
-                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-3 text-[10px] font-mono text-stone-400">Loading tree...</div>
-                                        )}
+                                        ) : <div className="bg-white/70 border border-cream-300 rounded-xl p-3 text-[10px] font-mono text-stone-400">Loading tree...</div>}
                                     </div>
-
                                     <div>
-                                        <div className="flex items-center justify-between px-1 mb-1.5">
-                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">MEMORY</span>
-                                            <button onClick={() => setMemoryEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
-                                        </div>
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400 px-1 mb-1.5 block">SESSION MEMORY</span>
                                         <div className="bg-white/70 border border-cream-300 rounded-xl p-3 space-y-1.5">
-                                            {memoryData ? (
-                                                memoryLessons.length === 0 ? <div className="text-[10px] font-mono text-stone-400">No lessons yet.</div> :
-                                                memoryLessons.slice(0, 5).map((l, i) => (
-                                                    <div key={i} className="text-[10px] leading-relaxed text-stone-500"><span className="text-ember-500 font-mono">L-{String(memoryLessons.length - i).padStart(2, '0')} </span>{l}</div>
-                                                ))
-                                            ) : <div className="text-[10px] font-mono text-stone-400">Loading...</div>}
-                                            {memoryData && <div className="text-[9px] font-mono text-stone-400 pt-1 border-t border-cream-200 mt-1">{memoryData.total_runs} RUNS · {memoryData.successful_runs} OK</div>}
+                                            {chatMemory.length === 0 ? <div className="text-[10px] font-mono text-stone-400">No lessons this session yet.</div> :
+                                                chatMemory.slice(-4).map((l, i) => <div key={i} className="text-[10px] leading-relaxed text-stone-500"><span className="text-ember-500 font-mono">L-{i + 1} </span>{l}</div>)}
                                         </div>
                                     </div>
-
                                     <div>
-                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400 px-1 mb-1.5 block">LAST RUN</span>
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400 px-1 mb-1.5 block">LAST PIPELINE RUN</span>
                                         {lastRun ? (
                                             <div className="bg-white/70 border border-cream-300 rounded-xl p-3 font-mono text-[10px] space-y-1 text-stone-500">
                                                 <div><span className="text-stone-400">PROVIDER</span> <span className="text-stone-700">{lastRun.provider} · {lastRun.model}</span></div>
                                                 <div><span className="text-stone-400">LATENCY</span> <span className="text-stone-700">{lastRun.latency_ms}ms</span></div>
-                                                <div><span className="text-stone-400">ARTIFACTS</span> <span className="text-stone-700">{lastRun.artifacts.length}</span></div>
                                                 {lastRun.review && <div><span className="text-stone-400">REVIEW</span> <span className="text-ember-600">{lastRun.review.applied ? 'APPLIED' : 'APPROVED'}</span></div>}
-                                                <a className="text-ember-600 hover:text-ember-700 block pt-1" href={PAGES_ROOT + '/output/latest_app.html'} target="_blank" rel="noopener noreferrer">VIEW APP ↗</a>
                                             </div>
                                         ) : <div className="text-[10px] font-mono text-stone-400 px-1">No run yet.</div>}
                                     </div>
                                 </div>
                             </aside>
 
-                            {/* Main chat / views */}
+                            {/* Main */}
                             <main className="flex-1 flex flex-col min-w-0">
+
                                 {/* CHAT */}
-                                <div className={`flex-1 min-h-0 flex flex-col ${activeView === 'chat' ? 'flex' : 'hidden md:flex'}`}>
+                                <div className={'flex-1 min-h-0 flex flex-col ' + (activeView === 'chat' ? 'flex' : 'hidden md:flex')}>
                                     <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-3 lg:px-6 py-4 space-y-3 max-w-3xl w-full mx-auto">
                                         {messages.map(renderMessage)}
-                                        {isProcessing && (
+                                        {busy && (
                                             <div className="flex items-center gap-2 text-[10px] font-mono text-ember-600 animate-pulseDot">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-ember-500"></span>
-                                                ROUTING THROUGH SWARM · {providerTag}
+                                                NEXUS IS WORKING · {providerTag}
                                             </div>
                                         )}
-                                        {!isProcessing && messages.length < 4 && (
+                                        {!busy && messages.filter(m => m.role === 'user').length < 1 && (
                                             <div className="flex flex-wrap gap-2 pt-2">
                                                 {QUICK_TASKS.map(t => (
-                                                    <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-full transition-all">
-                                                        {t}
-                                                    </button>
+                                                    <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-full transition-all">{t}</button>
                                                 ))}
                                             </div>
                                         )}
@@ -682,8 +681,8 @@
                                     <div id="nexus-composer" className="shrink-0 px-2 lg:px-6 pb-3 lg:pb-4 pt-2 max-w-3xl w-full mx-auto">
                                         <div className="rounded-2xl border border-cream-300 bg-white/95 backdrop-blur shadow-lift p-2.5">
                                             <div className="flex items-center justify-between px-1 pb-1.5">
-                                                <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">DIRECTIVE TO NEXUS</span>
-                                                <span className="text-[8px] font-mono text-ember-600">MODE {mode.toUpperCase()}</span>
+                                                <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">MESSAGE NEXUS</span>
+                                                <span className="text-[8px] font-mono text-ember-600">{brainConfigured() ? 'BRAIN ONLINE' : 'SETUP REQUIRED'}</span>
                                             </div>
                                             <form onSubmit={handleSubmit} className="relative">
                                                 <input
@@ -691,42 +690,70 @@
                                                     value={chatInput}
                                                     onChange={e => setChatInput(e.target.value)}
                                                     onFocus={() => { const c = document.getElementById('nexus-composer'); if (c) setTimeout(() => c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120); }}
-                                                    placeholder="Directive to Nexus..."
-                                                    disabled={isProcessing}
-                                                    className={`w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3.5 pr-24 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
+                                                    placeholder="Ask Nexus to build something, or just chat..."
+                                                    disabled={busy}
+                                                    className={'w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3.5 pr-14 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ' + (busy ? 'glow-active border-ember-300' : '')}
                                                 />
-                                                <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                                    <select value={mode} onChange={e => setMode(e.target.value)} className="md:hidden text-[9px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer w-16">
-                                                        {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                                    </select>
-                                                    <button
-                                                        type="submit"
-                                                        disabled={isProcessing || !chatInput.trim()}
-                                                        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
-                                                    >
-                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                                    </button>
-                                                </div>
+                                                <button
+                                                    type="submit"
+                                                    disabled={busy || !chatInput.trim()}
+                                                    className={'absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl transition-all ' + (busy || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft')}
+                                                >
+                                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                </button>
                                             </form>
                                         </div>
                                         <div className="mt-1.5 flex items-center justify-between text-[8px] font-mono text-stone-400">
-                                            <span>ENTER TO ROUTE · TAP THOUGHTS TO EXPAND</span>
-                                            <span className="hidden sm:block">4 PROVIDERS · RECURSIVE MEMORY</span>
+                                            <span>ENTER TO SEND · TAP THOUGHTS TO EXPAND</span>
+                                            <span className="hidden sm:block">REVIEW LOOP · DOWNLOADS · GITHUB IN BACKGROUND</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* PREVIEW */}
+                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'preview' ? 'flex' : 'hidden md:flex')}>
+                                    <div className="flex-1 min-h-0 overflow-hidden p-3 flex flex-col">
+                                        <div className="flex items-center gap-2.5 mb-2 shrink-0">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">LIVE PREVIEW</span>
+                                            {lastRun && <span className="text-[9px] font-mono text-stone-400">· {lastRun.provider} {lastRun.model} · {lastRun.latency_ms}ms</span>}
+                                            <span className="flex-1"></span>
+                                            <button onClick={() => setPreviewHtml(previewHtml)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">RELOAD</button>
+                                        </div>
+                                        <div className="flex-1 min-h-0 bg-white/80 border border-cream-300 rounded-2xl overflow-hidden flex flex-col">
+                                            <div className="h-9 bg-white border-b border-cream-200 flex items-center px-3 gap-2.5 shrink-0">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500 animate-pulse glow-active"></span>
+                                                <span className="text-[9px] font-mono tracking-wider text-stone-500">PREVIEW CANVAS</span>
+                                                <div className="flex-1"></div>
+                                                <span className="text-[9px] font-mono text-stone-400">{previewHtml ? 'ARTIFACT READY' : 'NO ARTIFACT YET'}</span>
+                                            </div>
+                                            {previewHtml ? (
+                                                <iframe title="Nexus Preview" sandbox="allow-scripts" srcDoc={previewHtml} className="flex-1 w-full border-0 bg-white"></iframe>
+                                            ) : (
+                                                <div className="flex-1 flex items-center justify-center">
+                                                    <div className="text-center">
+                                                        <div className="text-[10px] font-mono tracking-[0.2em] text-stone-400 mb-1">CANVAS EMPTY</div>
+                                                        <div className="text-[10px] font-mono text-stone-300">Build something in chat and tap PREVIEW on its file card.</div>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* FILES */}
-                                <div className={`flex-1 min-h-0 flex-col ${activeView === 'files' ? 'flex' : 'hidden md:flex'}`}>
+                                <div className={'flex-1 min-h-0 flex-col ' + (activeView === 'files' ? 'flex' : 'hidden md:flex')}>
                                     <div className="flex-1 min-h-0 overflow-hidden p-3 flex flex-col">
                                         <div className="flex items-center gap-2 mb-2 shrink-0">
                                             <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">WORKSPACE TREE</span>
-                                            <button onClick={() => setTreeHidden(!treeHidden)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600 ml-auto">{treeHidden ? 'SHOW HIDDEN' : 'HIDE HIDDEN'}</button>
-                                            <button onClick={() => setTreeEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
+                                            <button onClick={() => setTreeEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600 ml-auto">↻</button>
                                         </div>
                                         <div className="flex-1 min-h-0 grid grid-rows-2 md:grid-rows-1 md:grid-cols-2 gap-3">
                                             <div className="bg-white/80 border border-cream-300 rounded-2xl p-3 overflow-y-auto custom-scrollbar">
-                                                {tree ? <FileTree tree={tree} hidden={treeHidden} onOpenFile={openFileContent} /> : <div className="text-[10px] font-mono text-stone-400">Loading tree...</div>}
+                                                {tree ? tree.filter(t => t.type === 'blob').map(t => (
+                                                    <button key={t.path} onClick={() => openFileContent(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500 font-mono text-[11px]">
+                                                        <span>▸</span><span className="truncate flex-1">{t.path}</span>
+                                                    </button>
+                                                )) : <div className="text-[10px] font-mono text-stone-400">Loading tree...</div>}
                                             </div>
                                             <div className="bg-white/80 border border-cream-300 rounded-2xl overflow-hidden min-h-0">
                                                 <div className="flex items-center justify-between px-3 py-2 border-b border-cream-200 bg-cream-50">
@@ -740,14 +767,14 @@
                                 </div>
 
                                 {/* RUNS */}
-                                <div className={`flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ${activeView === 'runs' ? 'flex' : 'hidden md:flex'}`}>
+                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'runs' ? 'flex' : 'hidden md:flex')}>
                                     <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
-                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">PIPELINE RUNS</span>
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">BACKGROUND PIPELINE RUNS</span>
                                         {runs.length === 0 && <div className="text-[11px] font-mono text-stone-400">No runs found.</div>}
                                         {runs.map(r => (
                                             <a key={r.id} href={r.html_url} target="_blank" rel="noopener noreferrer" className="block bg-white/80 border border-cream-300 rounded-2xl px-4 py-3 shadow-soft hover:border-ember-300 transition-all">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${r.conclusion === 'success' ? 'bg-emerald-500' : r.conclusion === 'failure' ? 'bg-red-400' : 'bg-ember-400 animate-pulse'}`}></span>
+                                                    <span className={'w-1.5 h-1.5 rounded-full ' + (r.conclusion === 'success' ? 'bg-emerald-500' : r.conclusion === 'failure' ? 'bg-red-400' : 'bg-ember-400 animate-pulse')}></span>
                                                     <span className="text-[11px] font-mono text-stone-700 flex-1">RUN #{r.run_number} · {r.name}</span>
                                                     <span className="text-[9px] font-mono text-stone-400">{r.status === 'completed' ? (r.conclusion || '').toUpperCase() : r.status.toUpperCase()}</span>
                                                 </div>
@@ -758,12 +785,9 @@
                                 </div>
 
                                 {/* MEMORY (mobile) */}
-                                <div className={`flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ${activeView === 'memory' ? 'flex' : 'hidden md:flex'}`}>
+                                <div className={'flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ' + (activeView === 'memory' ? 'flex' : 'hidden md:flex')}>
                                     <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">RECURSIVE MEMORY</span>
-                                            <button onClick={() => setMemoryEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
-                                        </div>
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">RECURSIVE MEMORY</span>
                                         {memoryData && (
                                             <div className="grid grid-cols-4 gap-2">
                                                 {[['RUNS', memoryData.total_runs], ['OK', memoryData.successful_runs], ['VER', memoryData.memory_version || 1], ['LESSONS', memoryLessons.length]].map(([k, v]) => (
@@ -774,46 +798,78 @@
                                                 ))}
                                             </div>
                                         )}
-                                        <div className="space-y-2">
-                                            {memoryLessons.map((l, i) => (
-                                                <div key={i} className="bg-white/80 border border-cream-300 rounded-xl px-4 py-3 text-[11px] leading-relaxed text-stone-600"><span className="text-ember-500 font-mono text-[9px]">L-{String(memoryLessons.length - i).padStart(2, '0')} </span>{l}</div>
-                                            ))}
-                                        </div>
+                                        <div className="text-[9px] font-mono tracking-[0.18em] text-stone-400 pt-2">SESSION MEMORY</div>
+                                        {chatMemory.map((l, i) => (
+                                            <div key={i} className="bg-white/80 border border-cream-300 rounded-xl px-4 py-3 text-[11px] leading-relaxed text-stone-600"><span className="text-ember-500 font-mono text-[9px]">L-{String(chatMemory.length - i).padStart(2, '0')} </span>{l}</div>
+                                        ))}
+                                        {chatMemory.length === 0 && <div className="text-[11px] font-mono text-stone-400">No session lessons yet.</div>}
                                     </div>
                                 </div>
                             </main>
                         </div>
 
-                        {/* ===== REMOTE MODAL ===== */}
+                        {/* ===== BRAIN SETTINGS MODAL ===== */}
+                        {showSettings && (
+                            <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
+                                <div className="w-full max-w-[480px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
+                                    <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
+                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">BRAIN SETTINGS</span>
+                                        <button onClick={() => setShowSettings(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
+                                    </div>
+                                    <div className="p-5 space-y-4">
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">Nexus calls the LLM directly from this browser. Your key is stored ONLY in this browser (localStorage) and never sent to GitHub.</div>
+                                        <div>
+                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">PROVIDER</div>
+                                            <select value={brainCfg.provider || 'groq'} onChange={e => setBrainCfg({ ...brainCfg, provider: e.target.value, model: '' })} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
+                                                {Object.keys(PROVIDER_DEFS).map(k => <option key={k} value={k}>{PROVIDER_DEFS[k].label} · {PROVIDER_DEFS[k].defaultModel}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">API KEY</div>
+                                            <input type="password" value={brainCfg.key || ''} onChange={e => setBrainCfg({ ...brainCfg, key: e.target.value })} placeholder={brainCfg.provider === 'groq' ? 'gsk_...' : brainCfg.provider === 'openrouter' ? 'sk-or-...' : 'sk-...'} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                        </div>
+                                        <div>
+                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">MODEL (OPTIONAL - LEAVE BLANK FOR DEFAULT)</div>
+                                            <input type="text" value={brainCfg.model || ''} onChange={e => setBrainCfg({ ...brainCfg, model: e.target.value })} placeholder={PROVIDER_DEFS[brainCfg.provider || 'groq'].defaultModel} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                        </div>
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <button onClick={saveBrainCfg} className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft">SAVE & CLOSE</button>
+                                            <button onClick={testBrain} className="text-[10px] font-mono border border-cream-400 text-stone-600 hover:text-ember-600 px-4 py-2.5 rounded-xl tracking-wider transition-all">TEST CONNECTION</button>
+                                        </div>
+                                        {testResult && <div className={'text-[10px] font-mono px-3 py-2 rounded-xl border ' + (testResult.startsWith('CONNECTION OK') ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : testResult.startsWith('FAILED') ? 'border-red-200 bg-red-50 text-red-600' : 'border-cream-300 bg-cream-50 text-stone-600')}>{testResult}</div>}
+                                        <div className="text-[9px] font-mono text-stone-400 pt-1">TIP: Groq keys are free at console.groq.com. OpenRouter free models need no credit.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ===== PIPELINE MODAL ===== */}
                         {showRemote && (
                             <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
                                 <div className="w-full max-w-[520px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
                                     <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
-                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">REMOTE CONTROL</span>
+                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">BACKGROUND PIPELINE</span>
                                         <button onClick={() => setShowRemote(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
                                     <div className="p-5 space-y-4">
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">Optional: dispatch the GitHub Actions pipeline for heavy tasks and persistence. Everything else - chat, builds, reviews, downloads - works right here without it.</div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
                                             <input type="password" value={remoteToken} onChange={e => setRemoteToken(e.target.value)} placeholder="github_pat_..." className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
-                                            <div className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write.</div>
                                         </div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">DIRECTIVE</div>
-                                            <textarea value={remoteDirective} onChange={e => setRemoteDirective(e.target.value)} rows="3" placeholder="Generate an interactive operations dashboard..." className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 resize-none"></textarea>
+                                            <textarea value={remoteDirective} onChange={e => setRemoteDirective(e.target.value)} rows="2" placeholder="Optional - leave blank to skip" className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 resize-none"></textarea>
                                         </div>
                                         <div className="flex items-center gap-3 flex-wrap">
-                                            <button onClick={handleRemoteDispatch} disabled={remoteBusy || !remoteToken.trim() || !remoteDirective.trim()} className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft disabled:opacity-40">
-                                                {remoteBusy ? 'ENGAGED...' : 'DISPATCH DIRECTIVE'}
+                                            <button onClick={handleRemoteDispatch} disabled={remoteBusy || !remoteToken.trim()} className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft disabled:opacity-40">
+                                                {remoteBusy ? 'ENGAGED...' : 'DISPATCH'}
                                             </button>
                                             <span className="text-[10px] font-mono text-stone-400">{REPO}</span>
                                         </div>
-                                        {remoteStatus && (
-                                            <div className={`text-[10px] font-mono px-3 py-2 rounded-xl border ${remoteStatus.startsWith('ERROR') ? 'border-red-200 bg-red-50 text-red-500' : 'border-ember-200 bg-ember-50 text-ember-600'}`}>{remoteStatus}</div>
-                                        )}
+                                        {remoteStatus && <div className={'text-[10px] font-mono px-3 py-2 rounded-xl border ' + (remoteStatus.startsWith('ERROR') ? 'border-red-200 bg-red-50 text-red-500' : 'border-ember-200 bg-ember-50 text-ember-600')}>{remoteStatus}</div>}
                                         <div className="flex gap-4 text-[9px] font-mono text-stone-400 pt-1">
                                             <a href={ACTIONS_URL} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">RUN LOG</a>
-                                            <a href={PAGES_ROOT + '/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">LATEST APP</a>
                                             <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">CREATE TOKEN</a>
                                         </div>
                                     </div>

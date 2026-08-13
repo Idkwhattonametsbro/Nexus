@@ -162,6 +162,28 @@ No paid API credit required. The router falls back automatically:
 - Free-tier rate limits are handled by per-provider retry with backoff and the
   workflow concurrency guard.
 
+## Chat-Native Agent (V6)
+
+The workspace is now a **conversational agent**, not a dashboard. The chat is the
+product; GitHub is optional background plumbing.
+
+- **Browser-native brain**: the UI calls the LLM provider directly from your
+  browser (Groq / OpenRouter / DeepSeek), key stored in localStorage only.
+- **Conversational**: greetings and questions get real replies; ambiguous build
+  requests trigger clarifying questions with tap-to-answer options.
+- **Reasoning transparency**: every turn shows a "Thought for Xs" pill that
+  expands into the full reasoning trace.
+- **Build loop**: generate -> review (second model critiques) -> fix -> iterate
+  (up to 3 rounds) -> deliver. Every artifact is a file card with syntax
+  highlighting, iteration count, inline PREVIEW, DOWNLOAD, and optional
+  SAVE to the GitHub repo (background).
+- **Session memory**: a lesson is extracted after each approved build and
+  injected into future prompts (localStorage, capped at 10).
+- **Export**: the whole session exports as a downloadable markdown file.
+
+Setup: open BRAIN/SETTINGS, paste a Groq key (free) or OpenRouter key. That is
+the only step - no server, no deployment, no GitHub required to use the agent.
+
 ## Design Constraints
 
 - Light premium palette: creamy white background, white cards, soft warm borders,
