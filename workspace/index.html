@@ -76,8 +76,26 @@
         /* ================= BRAIN ENGINE (browser-native agent) ================= */
         const BRAIN_KEY = 'nexus_brain';
         const MEMORY_KEY = 'nexus_chat_memory';
+        const HISTORY_KEY = 'nexus_chat_history';
+
+        function loadChatHistory() { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [] } catch (e) { return [] } }
+        function saveChatHistory(msgs) {
+            try {
+                const slim = msgs.map(m => {
+                    const s = { id: m.id, role: m.role, kind: m.kind, ts: m.ts, text: m.text && m.text.slice(0, 20000) };
+                    if (m.kind === 'thought') s.lines = (m.lines || []).slice(0, 8);
+                    if (m.kind === 'questions') s.items = (m.items || []).slice(0, 4);
+                    if (m.kind === 'artifact') { s.filename = m.filename; s.lang = m.lang; s.summary = m.summary; s.iterations = m.iterations; s.review = m.review; s.content = (m.content || '').slice(0, 30000); }
+                    if (m.kind === 'card') s.title = m.title; s.tone = m.tone;
+                    if (m.attachments) s.attachments = m.attachments.map(a => a.kind === 'image' ? { id: a.id, kind: 'image', name: a.name, dataUrl: (a.dataUrl || '').slice(0, 400000) } : { id: a.id, kind: a.kind, name: a.name });
+                    return s;
+                }).slice(-60);
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(slim));
+            } catch (e) {}
+        }
 
         const PROVIDER_DEFS = {
+            auto: { label: 'AUTO · best available (Puter → Gemini → Groq → …)', defaultModel: '' },
             puter: { label: 'Puter · Claude Fable 5 (browser sign-in)', defaultModel: 'claude-fable-5', models: ['claude-fable-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-4.6', 'gpt-5.5', 'gpt-5.4', 'gemini-3.1-flash-lite', 'deepseek-r1'] },
             gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', defaultModel: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (free, vision)' },
             groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free, vision)' },
@@ -89,7 +107,12 @@
 
         function loadBrain() { try { return JSON.parse(localStorage.getItem(BRAIN_KEY)) || {} } catch (e) { return {} } }
         function saveBrain(c) { try { localStorage.setItem(BRAIN_KEY, JSON.stringify(c)) } catch (e) {} }
-        function brainConfigured() { const c = loadBrain(); return (c.provider === 'puter') || !!(c.key && c.key.trim()); }
+        function brainConfigured() {
+            const c = loadBrain();
+            if (c.provider === 'puter') return true;
+            if (c.keys) { for (const p of BRAIN_ORDER) if (c.keys[p]) return true; }
+            return !!(c.key && c.key.trim());
+        }
 
         function loadChatMemory() { try { return JSON.parse(localStorage.getItem(MEMORY_KEY)) || [] } catch (e) { return [] } }
         function addLesson(l) { const arr = loadChatMemory(); arr.push(l); try { localStorage.setItem(MEMORY_KEY, JSON.stringify(arr.slice(-10))) } catch (e) {} }
@@ -176,16 +199,99 @@
                 const chunk = (part && part.text) || '';
                 if (chunk) { full += chunk; if (opts.onToken) opts.onToken(chunk); }
             }
+            lastBrainProvider = 'PUTER';
             return opts.jsonMode ? parseJson(full) : full;
         }
 
-        async function brainCall(messages, opts = {}) {
+        /* ---- Rich text renderer: turns model output into clean, organized UI ---- */
+        function Inline({ text }) {
+            const parts = String(text || '').split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+            return parts.map((p, i) => {
+                if (/^\*\*[^*]+\*\*$/.test(p)) return <strong key={i} className="font-semibold text-stone-800">{p.slice(2, -2)}</strong>;
+                if (/^`[^`]+`$/.test(p)) return <code key={i} className="px-1.5 py-0.5 rounded-md bg-cream-200 text-ember-700 font-mono text-[11px]">{p.slice(1, -1)}</code>;
+                if (/^\*[^*]+\*$/.test(p)) return <em key={i} className="italic text-stone-500">{p.slice(1, -1)}</em>;
+                return <span key={i}>{p}</span>;
+            });
+        }
+        function renderRich(text) {
+            const blocks = String(text || '').split(/\n{2,}/);
+            return blocks.map((b, i) => {
+                const t = b.trim();
+                if (!t) return null;
+                if (t.startsWith('```')) {
+                    const lines = b.split('\n');
+                    const code = lines.slice(1, lines.length - (lines[lines.length - 1].trim() === '```' ? 1 : 0)).join('\n');
+                    return <pre key={i} className="my-2 rounded-xl bg-cream-100 border border-cream-300 px-4 py-3 font-mono text-[11px] leading-relaxed text-stone-700 overflow-x-auto custom-scrollbar whitespace-pre-wrap">{code}</pre>;
+                }
+                const heading = t.match(/^(#{1,4})\s+(.*)/);
+                if (heading) {
+                    const size = heading[1].length >= 3 ? 'text-[12px]' : 'text-[13px]';
+                    return <div key={i} className={size + ' font-semibold text-stone-800 mt-2.5 mb-1'}><Inline text={heading[2]} /></div>;
+                }
+                const lines = b.split('\n');
+                if (lines.every(l => /^[-*•]\s+/.test(l.trim()))) {
+                    return (
+                        <div key={i} className="my-1.5 space-y-1">
+                            {lines.map((l, j) => (
+                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
+                                    <span className="text-ember-500 shrink-0 mt-px">•</span>
+                                    <span><Inline text={l.replace(/^[-*•]\s+/, '')} /></span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                }
+                if (lines.every(l => /^\d+\.\s+/.test(l.trim()))) {
+                    return (
+                        <div key={i} className="my-1.5 space-y-1">
+                            {lines.map((l, j) => (
+                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
+                                    <span className="text-stone-400 font-mono text-[11px] shrink-0 pt-px">{l.match(/^\d+/)[0]}.</span>
+                                    <span><Inline text={l.replace(/^\d+\.\s+/, '')} /></span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                }
+                return (
+                    <p key={i} className="text-[13px] leading-relaxed text-stone-600 my-1">
+                        {lines.map((l, j) => <span key={j}>{j > 0 && <br />}<Inline text={l} /></span>)}
+                    </p>
+                );
+            });
+        }
+
+        /* ---- Multi-model chain: Puter (if signed in) -> saved keys (auto failover) ---- */
+        let lastBrainProvider = null;
+        const BRAIN_ORDER = ['puter', 'gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek'];
+
+        function providerKey(p) {
             const cfg = loadBrain();
-            if (cfg.provider === 'puter') return puterBrainCall(messages, opts);
-            const provider = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'groq';
+            if (cfg.keys && cfg.keys[p]) return cfg.keys[p];
+            if (p === cfg.provider && cfg.key) return cfg.key; // legacy single-key
+            return '';
+        }
+        function configuredProviders() {
+            const cfg = loadBrain();
+            const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
+            const pool = BRAIN_ORDER.filter(p => {
+                if (p === 'puter') return true; // verified live (no popup)
+                return !!providerKey(p);
+            });
+            if (chosen !== 'auto') return pool.filter(p => p === chosen);
+            return pool;
+        }
+        async function puterAvailable() {
+            try {
+                await loadPuterScript();
+                return !!(window.puter && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn());
+            } catch (e) { return false; }
+        }
+        async function keyedBrainCall(messages, opts, provider) {
             const def = PROVIDER_DEFS[provider];
+            const cfg = loadBrain();
             const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
-            const headers = { 'Authorization': 'Bearer ' + (cfg.key || ''), 'Content-Type': 'application/json' };
+            const headers = { 'Authorization': 'Bearer ' + providerKey(provider), 'Content-Type': 'application/json' };
             if (provider === 'openrouter') { headers['HTTP-Referer'] = window.location.origin; headers['X-Title'] = 'Nexus Workspace'; }
             const body = { model, messages, temperature: opts.temperature || 0.4 };
             if (opts.jsonMode) body.response_format = { type: 'json_object' };
@@ -204,6 +310,30 @@
             const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
             if (!content) throw new Error('Empty response from model.');
             return opts.jsonMode ? parseJson(content) : content;
+        }
+        async function brainCall(messages, opts = {}) {
+            const pool = configuredProviders();
+            if (!pool.length) throw new Error('No brain configured. Open BRAIN and sign in with Puter or add an API key.');
+            const cfg = loadBrain();
+            const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
+            const errors = [];
+            for (const p of pool) {
+                try {
+                    if (p === 'puter') {
+                        if (!(await puterAvailable())) { errors.push('Puter: not signed in'); continue; }
+                        const r = await puterBrainCall(messages, opts);
+                        lastBrainProvider = 'PUTER';
+                        return r;
+                    }
+                    const r = await keyedBrainCall(messages, opts, p);
+                    lastBrainProvider = p.toUpperCase();
+                    return r;
+                } catch (e) {
+                    errors.push(p + ': ' + (e.message || e));
+                    if (chosen !== 'auto') throw e;
+                }
+            }
+            throw new Error('All brains failed: ' + errors.join(' | '));
         }
 
         function buildSystemPrompt() {
@@ -224,7 +354,9 @@
                 '\n- After producing an artifact set status "artifact". A review pass will critique it; accept the feedback.' +
                 '\n- Never invent credentials, links, or claim actions you did not perform.' +
                 '\n- Keep replies under ~120 words unless writing code.' +
-                '\n\nOUTPUT: Respond with STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"artifact"|"done", "questions": ["..."], "artifact": {"filename": "app.html", "language": "html", "content": "..."}}' +
+                '\n\nOUTPUT: Respond with STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"artifact"|"done", "questions": ["..."], "artifact": {"filename": "app.html", "language": "html", "content": "..."}, "files": {"index.html": "...", "style.css": "..."}}' +
+                ' For complex multi-file projects use the "files" object instead of a single "artifact".' +
+                '\n\nFORMATTING: Write "reply" in clean, professional structured text: short paragraphs, bullet lists for options and steps, bold (**text**) for key terms and headings (## Section) for sections. Never dump long unstructured paragraphs. The UI renders these nicely.' +
                 memoryBlock
             );
         }
@@ -314,6 +446,12 @@
 
             /* ---- boot ---- */
             useEffect(() => {
+                const restored = loadChatHistory();
+                if (restored && restored.length) {
+                    setMessages(restored);
+                    pushMessage({ id: uid(), kind: 'card', title: 'SESSION RESTORED', tone: 'ok', lines: ['Your chat history, keys and settings were saved in this browser. Continue where you left off.'], ts: stamp() });
+                    return;
+                }
                 const boot = [];
                 boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Background brain online.', ts: stamp() });
                 if (brainConfigured()) {
@@ -337,6 +475,22 @@
             }, [memoryEpoch]);
 
             useEffect(() => { if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight; }, [messages]);
+
+            // Persist the chat automatically (debounced) - everything is kept
+            useEffect(() => {
+                const t = setTimeout(() => { if (messages.length) saveChatHistory(messages); }, 900);
+                return () => clearTimeout(t);
+            }, [messages]);
+
+            const clearSession = () => {
+                if (!window.confirm('Clear the saved chat history and start fresh? (Keys and settings stay saved)')) return;
+                try { localStorage.removeItem(HISTORY_KEY); } catch (e) {}
+                setMessages([]);
+                const boot = [];
+                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Fresh session.', ts: stamp() });
+                if (brainConfigured()) boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus. Ask me to build something, or just chat.', ts: stamp() });
+                setMessages(boot);
+            };
             useEffect(() => {
                 const vv = window.visualViewport;
                 if (!vv) return;
@@ -420,6 +574,9 @@
                             const dataUrl = await downscaleImage(raw);
                             added.push({ ...base, kind: 'image', dataUrl });
                         } catch (e) { added.push({ ...base, kind: 'file' }); }
+                    } else if (f.type && f.type.startsWith('video/')) {
+                        // Keep the File reference; uploaded to the repo in pipeline mode
+                        added.push({ ...base, kind: 'video', file: f, size: f.size });
                     } else if (f.size < 200 * 1024) {
                         try { added.push({ ...base, kind: 'text', text: await f.text() }); }
                         catch (e) { added.push({ ...base, kind: 'file' }); }
@@ -428,6 +585,20 @@
                     }
                 }
                 setAttachments(prev => [...prev, ...added].slice(0, 6));
+            };
+            const uploadBlobToRepo = async (file, name) => {
+                const token = remoteToken.trim();
+                if (!token) throw new Error('No GitHub token for upload');
+                const dataUrl = await fileToDataUrl(file);
+                const base64 = dataUrl.split(',')[1];
+                const path = 'chat-uploads/' + Date.now() + '_' + name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const res = await fetch(API + '/contents/' + path, {
+                    method: 'PUT',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'nexus: chat upload ' + name, content: base64 }),
+                });
+                if (!res.ok) throw new Error('Upload HTTP ' + res.status);
+                return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path;
             };
             const uploadImageToRepo = async (dataUrl, name) => {
                 const token = remoteToken.trim();
@@ -444,16 +615,20 @@
             };
             const buildAttachmentPrompt = async (userText, atts) => {
                 let prompt = userText;
-                const textParts = [], imageUrls = [];
+                const textParts = [], imageUrls = [], videoUrls = [];
                 for (const a of atts || []) {
                     if (a.kind === 'text') textParts.push('[Attached file: ' + a.name + ']\n```\n' + a.text.slice(0, 8000) + '\n```');
                     else if (a.kind === 'image') {
                         try { imageUrls.push(await uploadImageToRepo(a.dataUrl, a.name)); }
-                        catch (e) { pushMessage({ id: uid(), kind: 'card', title: 'IMAGE UPLOAD FAILED', tone: 'error', lines: ['Could not upload ' + a.name + ' to the repo: ' + (e.message || e), 'Your GitHub token needs Contents read/write, or enable FAST BRAIN for in-browser images.'], ts: stamp() }); }
+                        catch (e) { pushMessage({ id: uid(), kind: 'card', title: 'IMAGE UPLOAD FAILED', tone: 'error', lines: ['Could not upload ' + a.name + ' to the repo: ' + (e.message || e), 'Your GitHub token needs Contents read/write.'], ts: stamp() }); }
+                    } else if (a.kind === 'video') {
+                        try { videoUrls.push(await uploadBlobToRepo(a.file, a.name)); }
+                        catch (e) { pushMessage({ id: uid(), kind: 'card', title: 'VIDEO UPLOAD FAILED', tone: 'error', lines: ['Could not upload ' + a.name + ': ' + (e.message || e)], ts: stamp() }); }
                     }
                 }
                 if (textParts.length) prompt += '\n\n' + textParts.join('\n\n');
                 if (imageUrls.length) prompt += '\n\n' + imageUrls.map(u => '[IMAGE_URL: ' + u + ']').join('\n');
+                if (videoUrls.length) prompt += '\n\nAttached video(s):\n' + videoUrls.map(u => '- [VIDEO_URL: ' + u + ']').join('\n') + '\n(The video is stored in the repo; the model cannot watch it directly - describe what you want done with it.)';
                 return prompt;
             };
 
@@ -698,17 +873,31 @@
                     }
                     const secs = ((performance.now() - t0) / 1000).toFixed(1);
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
-                    setProviderTag(loadBrain().provider ? loadBrain().provider.toUpperCase() : '--');
+                    setProviderTag(lastBrainProvider || (loadBrain().provider ? loadBrain().provider.toUpperCase() : '--'));
                     if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, ts: stamp() });
                     if (out.status === 'clarify' && Array.isArray(out.questions) && out.questions.length) {
                         pushMessage({ id: uid(), kind: 'questions', items: out.questions.slice(0, 4), ts: stamp() });
                     }
-                    if (out.artifact && out.artifact.content) {
-                        const art = out.artifact;
-                        const artId = uid();
-                        pushMessage({ id: artId, kind: 'artifact', filename: art.filename || 'app.html', lang: (art.language || 'html').toUpperCase(), content: art.content, summary: art.summary || '', iterations: [1], review: null, ts: stamp() });
-                        await runReviewLoop(artId, userText, art);
-                        const finalMsg = messagesRef.current.find(m => m.id === artId);
+                    // Multi-file support: out.files = {name: content} OR out.artifact (single)
+                    const built = [];
+                    if (out.artifact && out.artifact.content) built.push(out.artifact);
+                    if (out.files && typeof out.files === 'object') {
+                        for (const [fname, fcontent] of Object.entries(out.files)) {
+                            if (fcontent && String(fcontent).trim().length > 10) {
+                                built.push({ filename: fname, language: (fname.split('.').pop() || 'txt').toLowerCase(), content: String(fcontent) });
+                            }
+                        }
+                    }
+                    if (built.length) {
+                        const primary = built.find(a => /\.html?$/.test(a.filename || '')) || built[0];
+                        for (const art of built) {
+                            const artId = uid();
+                            pushMessage({ id: artId, kind: 'artifact', filename: art.filename || 'app.html', lang: (art.language || 'html').toUpperCase(), content: art.content, summary: art.summary || '', iterations: [1], review: null, ts: stamp() });
+                            if (art === primary) {
+                                await runReviewLoop(artId, userText, art);
+                            }
+                        }
+                        const finalMsg = messagesRef.current.find(m => m.id && m.kind === 'artifact' && (m.content || '') === primary.content);
                         if (finalMsg && finalMsg.content) maybeLearnLesson(userText, finalMsg.content);
                     }
                 } catch (err) {
@@ -743,13 +932,13 @@
             const saveBrainCfg = () => {
                 saveBrain(brainCfg);
                 setShowSettings(false);
-                pushMessage({ id: uid(), kind: 'card', title: 'BRAIN CONFIGURED', tone: 'ok', lines: ['Provider: ' + (PROVIDER_DEFS[brainCfg.provider] || {}).label + ' · Model: ' + (brainCfg.model || (PROVIDER_DEFS[brainCfg.provider] || {}).defaultModel)], ts: stamp() });
+                pushMessage({ id: uid(), kind: 'card', title: 'BRAIN CONFIGURED', tone: 'ok', lines: ['Mode: ' + (PROVIDER_DEFS[brainCfg.provider] || {}).label + (brainCfg.model ? ' · Model: ' + brainCfg.model : ''), 'Everything is saved in this browser - no need to re-enter it.'], ts: stamp() });
             };
             const testBrain = async () => {
                 setTestResult('TESTING...');
                 try {
                     const out = await brainCall([{ role: 'user', content: 'Reply with JSON: {"ok": true}' }], { jsonMode: true, temperature: 0 });
-                    setTestResult('CONNECTION OK: ' + JSON.stringify(out));
+                    setTestResult('CONNECTION OK via ' + (lastBrainProvider || '?') + ': ' + JSON.stringify(out));
                 } catch (e) { setTestResult('FAILED: ' + (e.message || e)); }
             };
 
@@ -867,6 +1056,8 @@
                                         {(m.attachments || []).map(a => (
                                             a.kind === 'image'
                                                 ? <img key={a.id} src={a.dataUrl} alt={a.name} className="h-16 rounded-lg border border-cream-300 object-cover" />
+                                                : a.kind === 'video'
+                                                ? <span key={a.id} className="inline-flex items-center gap-1 text-[9px] font-mono border border-cream-300 bg-cream-50 rounded-md px-2 py-1 text-stone-500"><svg width="10" height="10" viewBox="0 0 24 24" fill="none"><path d="M23 7l-7 5 7 5V7z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><rect x="1" y="5" width="15" height="14" rx="2" stroke="currentColor" strokeWidth="1.8"/></svg>{a.name} · video</span>
                                                 : <span key={a.id} className="inline-flex items-center gap-1 text-[9px] font-mono border border-cream-300 bg-cream-50 rounded-md px-2 py-1 text-stone-500"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>{a.name}</span>
                                         ))}
                                     </div>
@@ -879,7 +1070,9 @@
                 return (
                     <div className="animate-fadeup">
                         <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{m.role === 'system' ? 'SYSTEM · ' + m.ts : 'NEXUS · ' + m.ts}</div>
-                        <div className={'text-[13px] leading-relaxed ' + (m.role === 'system' ? 'text-stone-400' : 'text-stone-600')}>{m.text}</div>
+                        <div className={m.role === 'system' ? 'text-[12px] leading-relaxed text-stone-400' : 'space-y-0.5'}>
+                            {m.role === 'system' ? <span>{m.text}</span> : renderRich(m.text || '')}
+                        </div>
                     </div>
                 );
             };
@@ -917,6 +1110,9 @@
                                     BRAIN
                                 </button>
                                 <button onClick={exportChat} className="hidden md:block text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all">EXPORT</button>
+                                <button onClick={clearSession} title="Clear saved chat" className="hidden md:flex w-8 h-8 items-center justify-center rounded-lg border border-cream-400 bg-white text-stone-400 hover:text-ember-600 hover:border-ember-300 transition-all">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                </button>
                                 <button onClick={() => setShowRemote(true)} className="hidden md:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">PIPELINE</button>
                             </div>
                             <div className="md:hidden flex border-t border-cream-200">
@@ -1003,7 +1199,7 @@
                                                 <div className="flex flex-wrap gap-1.5 px-1 pb-2">
                                                     {attachments.map(a => (
                                                         <span key={a.id} className="inline-flex items-center gap-1.5 text-[9px] font-mono border border-cream-300 bg-cream-50 rounded-lg px-2 py-1 text-stone-500">
-                                                            {a.kind === 'image' ? <img src={a.dataUrl} alt="" className="h-5 w-5 rounded object-cover" /> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-stone-400"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>}
+                                                            {a.kind === 'image' ? <img src={a.dataUrl} alt="" className="h-5 w-5 rounded object-cover" /> : a.kind === 'video' ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-stone-400"><path d="M23 7l-7 5 7 5V7z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><rect x="1" y="5" width="15" height="14" rx="2" stroke="currentColor" strokeWidth="1.8"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-stone-400"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>}
                                                             {a.name}
                                                             <button type="button" onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))} className="text-stone-400 hover:text-ember-600">×</button>
                                                         </span>
@@ -1029,7 +1225,7 @@
                                                 >
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                                 </button>
-                                                <input ref={fileInputRef} type="file" multiple accept="image/*,.txt,.md,.json,.js,.py,.html,.css,.csv,.log" className="hidden" onChange={e => { handleAttach(e.target.files); e.target.value = ''; }} />
+                                                <input ref={fileInputRef} type="file" multiple accept="image/*,video/*,.txt,.md,.json,.js,.py,.html,.css,.csv,.log" className="hidden" onChange={e => { handleAttach(e.target.files); e.target.value = ''; }} />
                                                 <button
                                                     type="submit"
                                                     disabled={busy || (!chatInput.trim() && !attachments.length)}
@@ -1156,9 +1352,10 @@
                                         <div className="text-[10px] text-stone-400 leading-relaxed">Pick the brain: <b>Puter</b> = Claude Fable 5 / Opus 5 / Sonnet 5 via free browser sign-in (best quality, your Puter account covers usage). Or use a key provider (Gemini free / Groq free / etc.). Heavy multi-part builds auto-route to the GitHub pipeline. Keys stay in this browser only.</div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">PROVIDER</div>
-                                            <select value={brainCfg.provider || 'groq'} onChange={e => setBrainCfg({ ...brainCfg, provider: e.target.value, model: '' })} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
-                                                {Object.keys(PROVIDER_DEFS).map(k => <option key={k} value={k}>{PROVIDER_DEFS[k].label} · {PROVIDER_DEFS[k].defaultModel}</option>)}
+                                            <select value={brainCfg.provider || 'auto'} onChange={e => setBrainCfg({ ...brainCfg, provider: e.target.value, model: '' })} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
+                                                {Object.keys(PROVIDER_DEFS).map(k => <option key={k} value={k}>{PROVIDER_DEFS[k].label} {k !== 'auto' && '· ' + PROVIDER_DEFS[k].defaultModel}</option>)}
                                             </select>
+                                            {brainCfg.provider === 'auto' && <div className="text-[9px] text-stone-400 mt-1.5 leading-relaxed">AUTO tries Puter first (if signed in), then every saved key (Gemini → Groq → GitHub Models → Cerebras → OpenRouter → DeepSeek) until one works. Your keys are saved per-provider below.</div>}
                                         </div>
                                         {brainCfg.provider === 'puter' ? (
                                             <div>
@@ -1169,10 +1366,22 @@
                                                 }} className="text-[10px] font-mono border border-cream-400 bg-cream-50 text-stone-600 hover:text-ember-600 hover:border-ember-300 px-4 py-2.5 rounded-xl tracking-wider transition-all w-full">SIGN IN WITH PUTER</button>
                                                 <div className="text-[9px] text-stone-400 mt-1.5 leading-relaxed">New accounts get starter credits. Your account pays for its own usage - the developer pays nothing. No API key needed.</div>
                                             </div>
+                                        ) : brainCfg.provider === 'auto' ? (
+                                            <div>
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">SAVED KEYS (ADD ANY - ALL ARE KEPT)</div>
+                                                <div className="space-y-2">
+                                                    {['gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek'].map(p => (
+                                                        <div key={p} className="flex items-center gap-2">
+                                                            <span className="text-[10px] font-mono text-stone-500 w-20 shrink-0">{PROVIDER_DEFS[p].label.split(' ')[0].toUpperCase()}</span>
+                                                            <input type="password" value={((brainCfg.keys || {})[p]) || ''} onChange={e => setBrainCfg({ ...brainCfg, keys: { ...(brainCfg.keys || {}), [p]: e.target.value } })} placeholder={p === 'groq' ? 'gsk_...' : p === 'openrouter' ? 'sk-or-...' : 'key'} className="flex-1 bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3 py-2.5 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
                                         ) : (
                                             <div>
-                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">API KEY</div>
-                                                <input type="password" value={brainCfg.key || ''} onChange={e => setBrainCfg({ ...brainCfg, key: e.target.value })} placeholder={brainCfg.provider === 'groq' ? 'gsk_...' : brainCfg.provider === 'openrouter' ? 'sk-or-...' : 'sk-...'} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">API KEY (SAVED FOR {String(brainCfg.provider || '').toUpperCase()})</div>
+                                                <input type="password" value={((brainCfg.keys || {})[brainCfg.provider]) || brainCfg.key || ''} onChange={e => setBrainCfg({ ...brainCfg, keys: { ...(brainCfg.keys || {}), [brainCfg.provider]: e.target.value } })} placeholder={brainCfg.provider === 'groq' ? 'gsk_...' : brainCfg.provider === 'openrouter' ? 'sk-or-...' : 'sk-...'} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
                                             </div>
                                         )}
                                         {brainCfg.provider === 'puter' ? (

@@ -208,6 +208,30 @@ background plumbing that holds the secrets.
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
+## V8: Full autonomy layer
+
+- **Multi-model auto-chain (AUTO mode)**: Nexus tries Puter (Claude Fable 5,
+  if signed in) then every saved key in order - Gemini 2.5 Flash -> Groq ->
+  GitHub Models -> Cerebras -> OpenRouter -> DeepSeek - failing over
+  automatically until one responds. No single provider can take Nexus down.
+  Keys are saved **per provider** in the browser.
+- **Everything persists**: chat history, keys, settings, attachments and
+  memory are all saved automatically (localStorage, debounced). Reload the
+  page, or come back days later - it all resumes. CLEAR button wipes chat
+  only (keys/settings stay).
+- **Professional text rendering**: model replies are rendered with proper
+  headings, bullet lists, numbered lists, bold key terms, inline code chips
+  and clean paragraphs - no more ugly text blobs. The system prompt enforces
+  structured writing.
+- **Multi-file projects**: the model can return a `files` object
+  (`index.html`, `style.css`, `script.js`...) - each becomes its own file card
+  with download/preview. The review pass focuses on the primary HTML file.
+- **Video + image + file uploads**: images go to vision models; videos and
+  files are uploaded to the repo and referenced in the prompt (models can
+  read text files and see images; video context is passed as a link).
+- **Connections**: Telegram bot, webhook bridge, browser remote control, and
+  the GitHub pipeline all remain available as integrations.
+
 ### Puter credits - the honest truth
 
 Puter markets "free unlimited", but its user-pays model means your **account**
