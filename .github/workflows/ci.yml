@@ -44,6 +44,13 @@ jobs:
             const html = fs.readFileSync('workspace/index.html', 'utf8');
             const m = html.match(/<script type=\"text\/babel\">([\s\S]*?)<\/script>/);
             if (!m) { console.error('NO BABEL SCRIPT FOUND'); process.exit(1); }
-            try { parser.parse(m[1], { sourceType: 'script', plugins: ['jsx'] }); console.log('UI JSX parse OK (' + m[1].length + ' chars)'); }
-            catch (e) { console.error('UI JSX PARSE FAILED: ' + e.message); process.exit(1); }
+            try { parser.parse(m[1], { sourceType: 'script', plugins: ['jsx'] }); } catch (e) { console.error('UI JSX PARSE FAILED: ' + e.message); process.exit(1); }
+            // Integrity checks that catch corrupted writes:
+            if (html.slice(html.indexOf('<script type=\"text/babel\">')).split('</script>').length > 2) { console.error('MULTIPLE babel closing tags - file corrupted'); process.exit(1); }
+            if (!html.trimEnd().endsWith('</html>')) { console.error('File does not end with </html> - trailing corruption'); process.exit(1); }
+            if (html.indexOf('</html>') !== html.lastIndexOf('</html>')) { console.error('Text after </html> - trailing corruption'); process.exit(1); }
+            const required = ['BRAIN_ORDER','providerKey','configuredProviders','puterAvailable','renderRich','keyedBrainCall','buildSystemPrompt','runTool','agentTurn'];
+            const missing = required.filter(r => !m[1].includes('function ' + r) && !m[1].includes('const ' + r) && !m[1].includes('let ' + r));
+            if (missing.length) { console.error('MISSING FUNCTIONS: ' + missing.join(', ')); process.exit(1); }
+            console.log('UI OK (' + m[1].length + ' chars)');
           "

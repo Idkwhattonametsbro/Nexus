@@ -131,8 +131,39 @@
             cerebras: { url: 'https://api.cerebras.ai/v1/chat/completions', defaultModel: 'llama-3.3-70b', label: 'Cerebras (free)' },
             openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter' },
             deepseek: { url: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-v4-flash', label: 'DeepSeek' },
+            pollinations: { url: 'https://gen.pollinations.ai/v1/chat/completions', defaultModel: 'openai', label: 'Pollinations · FREE, NO KEY · 100+ models', noKey: true },
         };
 
+        const BRAIN_ORDER = ['puter', 'gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek', 'pollinations'];
+
+        /* ---- Multi-model chain: Puter (if signed in) -> saved keys -> keyless Pollinations (auto failover) ---- */
+        let lastBrainProvider = null;
+        let lastBrainFallback = null;
+        function providerKey(p) {
+            const def = PROVIDER_DEFS[p];
+            if (def && def.noKey) return 'pollinations'; // keyless
+            const cfg = loadBrain();
+            if (cfg.keys && cfg.keys[p]) return cfg.keys[p];
+            if (p === cfg.provider && cfg.key) return cfg.key; // legacy single-key
+            return '';
+        }
+        function configuredProviders() {
+            const cfg = loadBrain();
+            const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
+            const pool = BRAIN_ORDER.filter(p => {
+                if (p === 'puter') return true; // verified live (no popup)
+                if (PROVIDER_DEFS[p] && PROVIDER_DEFS[p].noKey) return true; // keyless
+                return !!providerKey(p);
+            });
+            if (chosen !== 'auto') return pool.filter(p => p === chosen);
+            return pool;
+        }
+        async function puterAvailable() {
+            try {
+                await loadPuterScript();
+                return !!(window.puter && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn());
+            } catch (e) { return false; }
+        }
         function loadBrain() { try { return JSON.parse(localStorage.getItem(BRAIN_KEY)) || {} } catch (e) { return {} } }
         function saveBrain(c) { try { localStorage.setItem(BRAIN_KEY, JSON.stringify(c)) } catch (e) {} }
         function brainConfigured() {
@@ -212,7 +243,10 @@
             const def = PROVIDER_DEFS[provider];
             const cfg = loadBrain();
             const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
-            const headers = { 'Authorization': 'Bearer ' + providerKey(provider), 'Content-Type': 'application/json' };
+            const key = providerKey(provider);
+            const headers = (PROVIDER_DEFS[provider] && PROVIDER_DEFS[provider].noKey)
+                ? { 'Content-Type': 'application/json' }
+                : { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' };
             if (provider === 'openrouter') { headers['HTTP-Referer'] = window.location.origin; headers['X-Title'] = 'Nexus Workspace'; }
             const body = { model, messages, temperature: opts.temperature || 0.4 };
             if (opts.jsonMode) body.response_format = { type: 'json_object' };
@@ -740,6 +774,7 @@
             const activeSkills = (pm.skills && pm.skills.length)
                 ? '\n\n[ACTIVE SKILLS]\n' + pm.skills.map(s => '- ' + s).join('\n')
                 : '';
+            const summaryBlock = pm.summary ? '\n\n[Earlier conversation summary]\n' + pm.summary : '';
             const proj = (pm.goal || (pm.files && pm.files.length) || (pm.next && pm.next.length))
                 ? '\n\n[Project context - this conversation]\n' +
                   (pm.goal ? 'Goal: ' + pm.goal + '\n' : '') +
@@ -768,7 +803,7 @@
                 '\n- Timers: for "set a timer/reminder for X" use schedule_task with oneShot=true so it fires once. Note the app must stay open for timers to fire.' +
                 '\n- YouTube/channel checks: use api_call youtube_rss for latest videos (no key). For full analytics explain the free YouTube Data API key setup.' +
                 '\n\nFORMATTING: "reply" must be clean, professional and structured: short paragraphs, bullets for options/steps, **bold** for key terms, ## for sections. Never dump long unstructured text.' +
-                memoryBlock + proj + activeSkills
+                memoryBlock + proj + activeSkills + summaryBlock
             );
         }
 
@@ -783,6 +818,64 @@
         const LESSON_SYSTEM =
             'Extract ONE concise objective rule (1 sentence max) about code quality or format from the given task and artifact. ' +
             'If nothing notable, output {"lesson": null}. Return STRICT JSON only.';
+
+        /* ================= RICH TEXT RENDERER (clean, professional replies) ================= */
+        function Inline({ text }) {
+            const parts = String(text || '').split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+            return parts.map((p, i) => {
+                if (/^\*\*[^*]+\*\*$/.test(p)) return <strong key={i} className="font-semibold text-stone-800">{p.slice(2, -2)}</strong>;
+                if (/^`[^`]+`$/.test(p)) return <code key={i} className="px-1.5 py-0.5 rounded-md bg-cream-200 text-ember-700 font-mono text-[11px]">{p.slice(1, -1)}</code>;
+                if (/^\*[^*]+\*$/.test(p)) return <em key={i} className="italic text-stone-500">{p.slice(1, -1)}</em>;
+                return <span key={i}>{p}</span>;
+            });
+        }
+        function renderRich(text) {
+            const blocks = String(text || '').split(/\n{2,}/);
+            return blocks.map((b, i) => {
+                const t = b.trim();
+                if (!t) return null;
+                if (t.startsWith('```')) {
+                    const lines = b.split('\n');
+                    const code = lines.slice(1, lines.length - (lines[lines.length - 1].trim() === '```' ? 1 : 0)).join('\n');
+                    return <pre key={i} className="my-2 rounded-xl bg-cream-100 border border-cream-300 px-4 py-3 font-mono text-[11px] leading-relaxed text-stone-700 overflow-x-auto custom-scrollbar whitespace-pre-wrap">{code}</pre>;
+                }
+                const heading = t.match(/^(#{1,4})\s+(.*)/);
+                if (heading) {
+                    const size = heading[1].length >= 3 ? 'text-[12px]' : 'text-[13px]';
+                    return <div key={i} className={size + ' font-semibold text-stone-800 mt-2.5 mb-1'}><Inline text={heading[2]} /></div>;
+                }
+                const lines = b.split('\n');
+                if (lines.every(l => /^[-*•]\s+/.test(l.trim()))) {
+                    return (
+                        <div key={i} className="my-1.5 space-y-1">
+                            {lines.map((l, j) => (
+                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
+                                    <span className="text-ember-500 shrink-0 mt-px">•</span>
+                                    <span><Inline text={l.replace(/^[-*•]\s+/, '')} /></span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                }
+                if (lines.every(l => /^\d+\.\s+/.test(l.trim()))) {
+                    return (
+                        <div key={i} className="my-1.5 space-y-1">
+                            {lines.map((l, j) => (
+                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
+                                    <span className="text-stone-400 font-mono text-[11px] shrink-0 pt-px">{l.match(/^\d+/)[0]}.</span>
+                                    <span><Inline text={l.replace(/^\d+\.\s+/, '')} /></span>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                }
+                return (
+                    <p key={i} className="text-[13px] leading-relaxed text-stone-600 my-1">
+                        {lines.map((l, j) => <span key={j}>{j > 0 && <br />}<Inline text={l} /></span>)}
+                    </p>
+                );
+            });
+        }
 
         /* ================= UX HELPERS ================= */
         function relTime(ts) {
@@ -1048,6 +1141,7 @@
 
             /* ================= AUTONOMY CORE ================= */
             const stopRef = useRef(false);
+            const compressedRef = useRef({});
             const lastUserTextRef = useRef('');
             const autoContinueRef = useRef(true);
 
@@ -1080,6 +1174,28 @@
                 return () => clearInterval(iv);
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, []);
+
+            // ---- Context compression: when a chat grows past 46 messages,
+            //      summarize the older ones so the agent stays sharp ----
+            useEffect(() => {
+                if (!activeChatId || busy) return;
+                const mem = activeChat && activeChat.memory ? activeChat.memory : {};
+                if (mem.summary || compressedRef.current[activeChatId]) return;
+                if (!activeChat || activeChat.messages.length < 46) return;
+                compressedRef.current[activeChatId] = true;
+                (async () => {
+                    try {
+                        const oldMsgs = activeChat.messages.slice(0, -24).filter(x => x.text)
+                            .map(x => (x.role === 'user' ? 'U: ' : 'A: ') + String(x.text).slice(0, 300)).join('\n').slice(0, 9000);
+                        if (!oldMsgs) return;
+                        const sum = await brainCall([{ role: 'user', content: 'Summarize this conversation in 4-6 short lines: goal, decisions made, files built, open questions, next steps. Plain text only.\n\n' + oldMsgs }], { temperature: 0.2 });
+                        const txt = typeof sum === 'string' ? sum : JSON.stringify(sum);
+                        setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, memory: { ...(c.memory || {}), summary: txt.slice(0, 1200) } } : c));
+                        pushMessage({ id: uid(), kind: 'card', title: 'CONTEXT COMPRESSED', tone: 'info', lines: ['Older messages summarized to keep this conversation sharp. Summary: ' + txt.slice(0, 150) + '...'], ts: stamp() });
+                    } catch (e) {}
+                })();
+                // eslint-disable-next-line react-hooks/exhaustive-deps
+            }, [activeChatId, activeChat ? activeChat.messages.length : 0]);
 
             /* ================= AGENT CORE ================= */
             const downloadBlob = (content, filename) => {
@@ -1806,7 +1922,7 @@
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V10.1</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V10.2</span>
                                     </div>
                                     <div className="text-[9px] text-stone-400 font-mono hidden sm:block">CHAT-NATIVE AUTONOMOUS AGENT</div>
                                 </div>
@@ -2307,18 +2423,6 @@
                     </div>
                 </div>
             );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
- root.render(<App />);
-    </script>
-</body>
-</html>
-
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
