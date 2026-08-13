@@ -4,9 +4,10 @@
     "When generating a standalone HTML dashboard, always embed all CSS inline and avoid any external dependencies.",
     "When responding to code-generation requests, provide the complete solution exactly in the format specified and never truncate it.",
     "Always provide a complete, self-contained HTML file with all necessary inline CSS to fully implement the requested features.",
-    "Always deliver the requested technical architecture analysis in structured markdown, covering the topics specified in the directive."
+    "Always deliver the requested technical architecture analysis in structured markdown, covering the topics specified in the directive.",
+    "When generating quick web tools, produce a single\u2011file HTML application with all CSS and JavaScript embedded inline."
   ],
-  "total_runs": 9,
-  "successful_runs": 9,
-  "last_run_at": "2026-08-13T12:56:35.000000+00:00"
+  "total_runs": 10,
+  "successful_runs": 10,
+  "last_run_at": "2026-08-13T13:33:35.604858+00:00"
 }
