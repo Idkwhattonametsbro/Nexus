@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Nexus Autonomous Workspace</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -12,7 +12,6 @@
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs/loader.js"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
                     fontFamily: {
@@ -20,47 +19,68 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
-                        zinc: {
-                            850: '#1f1f22',
-                            900: '#18181b',
-                            950: '#09090b',
-                        }
+                        cream: {
+                            50: '#FDFCFA',
+                            100: '#FAF8F4',
+                            200: '#F4EFE7',
+                            300: '#EBE4D8',
+                            400: '#DDD3C3',
+                            500: '#C9BFAE',
+                        },
+                        ember: {
+                            50: '#FFF7ED',
+                            100: '#FFEDD5',
+                            200: '#FED7AA',
+                            300: '#FDBA74',
+                            400: '#FB923C',
+                            500: '#F97316',
+                            600: '#EA580C',
+                            700: '#C2410C',
+                        },
+                    },
+                    boxShadow: {
+                        soft: '0 1px 2px rgba(28,25,23,0.05), 0 4px 14px rgba(28,25,23,0.06)',
+                        lift: '0 10px 34px rgba(28,25,23,0.12)',
+                        ember: '0 0 0 1px rgba(249,115,22,0.30), 0 6px 22px rgba(249,115,22,0.22)',
                     },
                     keyframes: {
+                        fadeup: {
+                            '0%': { opacity: '0', transform: 'translateY(5px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
                         scanline: {
                             '0%': { transform: 'translateY(-100%)' },
-                            '100%': { transform: 'translateY(100%)' }
+                            '100%': { transform: 'translateY(100%)' },
                         },
-                        fadeup: {
-                            '0%': { opacity: '0', transform: 'translateY(4px)' },
-                            '100%': { opacity: '1', transform: 'translateY(0)' }
-                        }
                     },
                     animation: {
+                        fadeup: 'fadeup 0.28s ease-out both',
                         scanline: 'scanline 2.4s ease-in-out infinite',
-                        fadeup: 'fadeup 0.25s ease-out both',
-                    }
-                }
-            }
+                    },
+                },
+            },
         }
     </script>
     <style>
-        body { background-color: #09090b; color: #d4d4d8; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; }
-        .glow-active { box-shadow: 0 0 15px rgba(99, 102, 241, 0.4); }
-        .glow-strong { box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5), 0 0 24px rgba(99, 102, 241, 0.35); }
+        body { background-color: #FAF8F4; color: #44403C; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        .glow-active { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.30), 0 0 16px rgba(249, 115, 22, 0.20); }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
-        ::selection { background: rgba(99, 102, 241, 0.35); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #D9D2C4; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #C4BBA9; }
+        ::selection { background: rgba(253, 186, 116, 0.45); }
         #monaco-container { width: 100%; height: 100%; }
         .grid-bg {
             background-image:
-                linear-gradient(rgba(63, 63, 70, 0.12) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(63, 63, 70, 0.12) 1px, transparent 1px);
-            background-size: 32px 32px;
+                linear-gradient(rgba(196, 181, 253, 0) 0px, transparent 0px),
+                linear-gradient(rgba(193, 178, 155, 0.16) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(193, 178, 155, 0.16) 1px, transparent 1px);
+            background-size: 100% 100%, 30px 30px, 30px 30px;
         }
         .scanline-track { overflow: hidden; }
+        .brand-gradient { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
+        .btn-primary { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
+        .btn-primary:hover { filter: brightness(1.06); }
     </style>
 </head>
 <body>
@@ -137,36 +157,37 @@
             const [remoteDirective, setRemoteDirective] = useState('');
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
+            const [showStream, setShowStream] = useState(false);
             const editorRef = useRef(null);
             const logRef = useRef(null);
             const chatScrollRef = useRef(null);
 
-            // Monaco bootstrap with a strict zinc/indigo theme
+            // Monaco bootstrap with a warm light theme
             useEffect(() => {
                 require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' }});
                 require(['vs/editor/editor.main'], function() {
-                    monaco.editor.defineTheme('nexus-dark', {
-                        base: 'vs-dark',
+                    monaco.editor.defineTheme('nexus-light', {
+                        base: 'vs',
                         inherit: true,
                         rules: [],
                         colors: {
-                            'editor.background': '#09090b',
-                            'editor.lineHighlightBackground': '#18181b',
-                            'editorLineNumber.foreground': '#3f3f46',
-                            'editorLineNumber.activeForeground': '#a1a1aa',
-                            'editorCursor.foreground': '#6366f1',
-                            'editor.selectionBackground': '#312e81',
-                            'editorIndentGuide.background': '#18181b',
-                            'editorIndentGuide.activeBackground': '#27272a',
-                            'minimap.background': '#09090b',
-                            'scrollbarSlider.background': '#3f3f46',
-                            'scrollbarSlider.hoverBackground': '#52525b',
+                            'editor.background': '#FAF8F4',
+                            'editor.lineHighlightBackground': '#F3EEE6',
+                            'editorLineNumber.foreground': '#C7C0B4',
+                            'editorLineNumber.activeForeground': '#8A857C',
+                            'editorCursor.foreground': '#F97316',
+                            'editor.selectionBackground': '#FED7AA',
+                            'editorIndentGuide.background': '#EAE3D6',
+                            'editorIndentGuide.activeBackground': '#D6CFC2',
+                            'minimap.background': '#FAF8F4',
+                            'scrollbarSlider.background': '#D9D2C4',
+                            'scrollbarSlider.hoverBackground': '#C4BBA9',
                         }
                     });
                     editorRef.current = monaco.editor.create(document.getElementById('monaco-container'), {
-                        value: '<!-- Nexus Auto-Generated Code -->\n<!--\n  Deploy a directive in the Command Stream, then run the\n  pipeline from Actions. Generated artifacts are committed\n  to the repository and surfaced here.\n-->\n<div class="p-4 text-zinc-200">\n  Initializing...\n</div>',
+                        value: '<!-- Nexus Auto-Generated Code -->\n<!--\n  Deploy a directive in the Command Stream, then run the\n  pipeline from Actions. Generated artifacts are committed\n  to the repository and surfaced here.\n-->\n<div class="p-4 text-stone-800">\n  Initializing...\n</div>',
                         language: 'html',
-                        theme: 'nexus-dark',
+                        theme: 'nexus-light',
                         minimap: { enabled: false },
                         fontFamily: 'JetBrains Mono',
                         fontSize: 13,
@@ -177,7 +198,7 @@
                 });
             }, []);
 
-            // Relayout Monaco when its tab becomes active (hidden containers render at zero size)
+            // Relayout Monaco when its tab becomes active
             useEffect(() => {
                 if (activeTab === 'code' && editorRef.current) {
                     setTimeout(() => editorRef.current.layout(), 50);
@@ -207,7 +228,7 @@
             // Auto-scroll chat and logs
             useEffect(() => {
                 if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-            }, [messages]);
+            }, [messages, showStream]);
             useEffect(() => {
                 if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
             }, [logs]);
@@ -243,7 +264,6 @@
                     try { localStorage.setItem('nexus_remote_token', remoteToken.trim()); } catch (e) {}
                     pushLog('REMOTE', 'Directive dispatched from browser to ' + repo, 'active');
                     setRemoteStatus('RUN STARTED - POLLING STATUS...');
-                    // Poll for the newest dispatch run.
                     let run = null;
                     for (let i = 0; i < 8; i++) {
                         await new Promise(r => setTimeout(r, 4000));
@@ -324,8 +344,8 @@
 
             const memoryLessons = (memoryData && memoryData.lessons) ? memoryData.lessons : [];
             const statusPill = isProcessing
-                ? { label: 'PROCESSING', cls: 'text-indigo-300 border-indigo-500/40 bg-indigo-500/10' }
-                : (runCount > 0 ? { label: 'STANDBY', cls: 'text-zinc-400 border-zinc-700 bg-zinc-900' } : { label: 'IDLE', cls: 'text-zinc-500 border-zinc-800 bg-zinc-900' });
+                ? { label: 'PROCESSING', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
+                : (runCount > 0 ? { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' } : { label: 'IDLE', cls: 'text-stone-400 border-cream-300 bg-white' });
 
             const tabDefs = [
                 { id: 'canvas', label: 'PREVIEW' },
@@ -334,48 +354,105 @@
                 { id: 'logs', label: 'LOGS' },
             ];
 
+            const StreamContent = ({ compact }) => (
+                <div className="flex flex-col h-full">
+                    <div className="h-10 border-b border-cream-200 flex items-center justify-between px-4 shrink-0">
+                        <span className="text-[10px] font-semibold tracking-[0.18em] text-stone-400">COMMAND STREAM</span>
+                        <span className="text-[9px] font-mono text-stone-400">{isProcessing ? 'SWARM ENGAGED' : 'AWAITING DIRECTIVE'}</span>
+                    </div>
+                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-3.5">
+                        {messages.map((msg, idx) => (
+                            <div key={idx} className="animate-fadeup">
+                                {msg.role === 'user' ? (
+                                    <div className="flex justify-end">
+                                        <div className="max-w-[85%] bg-ember-50 border border-ember-200/70 rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-soft">
+                                            <div className="text-[9px] font-mono text-ember-500 mb-1 tracking-wider">OPERATOR · {msg.ts}</div>
+                                            <div className="text-[13px] leading-relaxed text-stone-700">{msg.content}</div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{msg.role === 'system' ? 'SYSTEM · ' + msg.ts : 'AGENT · ' + msg.ts}</div>
+                                        <div className={`text-[13px] leading-relaxed ${msg.role === 'system' ? 'text-stone-400' : 'text-stone-600'}`}>{msg.content}</div>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+
+                        {isProcessing && (
+                            <div className="rounded-2xl border border-ember-200 bg-white shadow-soft px-4 py-3.5 animate-fadeup">
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-[9px] font-mono tracking-wider text-ember-600">EXECUTION IN PROGRESS</span>
+                                    <span className="text-[9px] font-mono text-stone-400">{providerTag}</span>
+                                </div>
+                                <div className="space-y-2">
+                                    {PIPELINE_STAGES.map((s, i) => {
+                                        const done = i < currentStage;
+                                        const active = i === currentStage;
+                                        return (
+                                            <div key={s.id} className={`flex items-center gap-2 text-[10px] font-mono ${active ? 'text-ember-600' : done ? 'text-stone-500' : 'text-stone-300'}`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-ember-500 animate-pulse' : done ? 'bg-ember-300' : 'bg-cream-300'}`}></span>
+                                                {s.label}
+                                                {active && <span className="text-stone-400">· RUNNING</span>}
+                                                {done && <span className="text-stone-400">· DONE</span>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="mt-3 h-1 bg-cream-200 rounded-full overflow-hidden">
+                                    <div className="h-full brand-gradient rounded-full transition-all duration-500" style={{ width: ((currentStage + 1) / PIPELINE_STAGES.length * 100) + '%' }}></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+
             return (
-                <div className="flex flex-col h-screen w-full bg-zinc-950 min-w-[1080px]">
+                <div className="flex flex-col h-screen w-full bg-cream-100 overflow-hidden">
 
                     {/* ============ TOP BAR ============ */}
-                    <header className="h-12 flex items-center px-5 border-b border-zinc-800 bg-zinc-900 shrink-0">
-                        <div className="flex items-center gap-3">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-indigo-400">
-                                <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
-                                <path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" opacity="0.55"/>
-                            </svg>
-                            <span className="font-semibold text-sm tracking-[0.22em] text-zinc-100">NEXUS</span>
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 border border-zinc-700 rounded text-zinc-400 tracking-wider">V3.0</span>
+                    <header className="h-13 lg:h-12 flex items-center px-4 lg:px-5 border-b border-cream-300 bg-white/90 backdrop-blur shrink-0 z-30">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl brand-gradient shadow-soft flex items-center justify-center">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
+                                    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/>
+                                    <path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6"/>
+                                </svg>
+                            </div>
+                            <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V4.0</span>
                         </div>
 
-                        <div className="flex-1 flex justify-center">
-                            <div className={`flex items-center gap-2 px-3 py-1 rounded-md border text-[11px] font-mono tracking-wider transition-all ${statusPill.cls} ${isProcessing ? 'glow-active' : ''}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isProcessing ? 'bg-indigo-400 animate-pulse' : 'bg-zinc-600'}`}></span>
+                        <div className="flex-1 flex justify-center px-2">
+                            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-mono tracking-wider transition-all ${statusPill.cls} ${isProcessing ? 'glow-active' : ''}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${isProcessing ? 'bg-ember-500 animate-pulse' : 'bg-stone-300'}`}></span>
                                 {statusPill.label}
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-5 font-mono text-[11px] text-zinc-500">
-                            <div className="hidden xl:block text-right leading-tight">
-                                <div>RUNS <span className="text-zinc-300">{String(runCount).padStart(2, '0')}</span></div>
-                                <div>MEM <span className="text-zinc-300">{memoryData ? memoryLessons.length : '--'}</span></div>
-                            </div>
-                            <div className="hidden xl:block w-px h-6 bg-zinc-800"></div>
-                            <div className="hidden xl:block text-right leading-tight">
-                                <div>ROUTE</div>
-                                <div className={isProcessing ? 'text-indigo-400' : 'text-zinc-400'}>{providerTag}</div>
-                            </div>
+                        <div className="flex items-center gap-2 lg:gap-4">
+                            <button
+                                onClick={() => setShowStream(true)}
+                                className="lg:hidden w-8 h-8 rounded-lg border border-cream-300 bg-white text-stone-500 flex items-center justify-center relative"
+                                title="Thought stream"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                    <path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
+                                </svg>
+                                {isProcessing && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-ember-500 animate-pulse"></span>}
+                            </button>
                             <a
                                 href={actionsUrl()}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-[11px] font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-md tracking-wider transition-all glow-active hover:glow-strong"
+                                className="hidden lg:block text-[10px] font-mono btn-primary text-white px-4 py-2 rounded-lg tracking-wider transition-all shadow-soft hover:shadow-ember"
                             >
                                 DEPLOY TO PIPELINE
                             </a>
                             <button
                                 onClick={() => setShowRemote(true)}
-                                className="text-[11px] font-mono border border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:border-zinc-500 px-3.5 py-1.5 rounded-md tracking-wider transition-all"
+                                className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all"
                             >
                                 REMOTE
                             </button>
@@ -385,63 +462,10 @@
                     {/* ============ MAIN ============ */}
                     <div className="flex flex-1 min-h-0">
 
-                        {/* ---- Command Stream ---- */}
-                        <aside className="w-[400px] flex flex-col border-r border-zinc-800 bg-zinc-900 shrink-0">
-                            <div className="h-11 border-b border-zinc-800 flex items-center justify-between px-4 shrink-0">
-                                <span className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400">COMMAND STREAM</span>
-                                <span className="text-[10px] font-mono text-zinc-600">{isProcessing ? 'SWARM ENGAGED' : 'AWAITING DIRECTIVE'}</span>
-                            </div>
-
-                            <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-4">
-                                {messages.map((msg, idx) => (
-                                    <div key={idx} className="animate-fadeup">
-                                        {msg.role === 'user' ? (
-                                            <div className="flex justify-end">
-                                                <div className="max-w-[85%] bg-zinc-800/80 border border-zinc-700/60 rounded-lg rounded-br-sm px-3.5 py-2.5">
-                                                    <div className="text-[10px] font-mono text-indigo-400/80 mb-1 tracking-wider">OPERATOR · {msg.ts}</div>
-                                                    <div className="text-[13px] leading-relaxed text-zinc-200">{msg.content}</div>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div>
-                                                <div className="text-[10px] font-mono text-zinc-600 mb-1 tracking-wider">{msg.role === 'system' ? 'SYSTEM · ' + msg.ts : 'AGENT · ' + msg.ts}</div>
-                                                <div className={`text-[13px] leading-relaxed ${msg.role === 'system' ? 'text-zinc-500' : 'text-zinc-300'}`}>{msg.content}</div>
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
-
-                                {isProcessing && (
-                                    <div className="rounded-lg border border-indigo-500/30 bg-zinc-950/80 glow-active px-3.5 py-3 animate-fadeup">
-                                        <div className="flex items-center justify-between mb-2.5">
-                                            <span className="text-[10px] font-mono tracking-wider text-indigo-300">EXECUTION IN PROGRESS</span>
-                                            <span className="text-[10px] font-mono text-zinc-500">{providerTag}</span>
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            {PIPELINE_STAGES.map((s, i) => {
-                                                const done = i < currentStage;
-                                                const active = i === currentStage;
-                                                return (
-                                                    <div key={s.id} className={`flex items-center gap-2 text-[11px] font-mono ${active ? 'text-indigo-300' : done ? 'text-zinc-400' : 'text-zinc-700'}`}>
-                                                        <span className={`w-1 h-1 rounded-full ${active ? 'bg-indigo-400 animate-pulse' : done ? 'bg-zinc-500' : 'bg-zinc-800'}`}></span>
-                                                        {s.label}
-                                                        {active && <span className="text-zinc-600">· RUNNING</span>}
-                                                        {done && <span className="text-zinc-600">· DONE</span>}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <div className="mt-3 h-0.5 bg-zinc-800 rounded overflow-hidden">
-                                            <div
-                                                className="h-full bg-indigo-500 transition-all duration-500"
-                                                style={{ width: ((currentStage + 1) / PIPELINE_STAGES.length * 100) + '%' }}
-                                            ></div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="p-4 border-t border-zinc-800 bg-zinc-900 shrink-0">
+                        {/* ---- Command Stream (desktop sidebar) ---- */}
+                        <aside className="hidden lg:flex w-[360px] flex-col border-r border-cream-300 bg-white/70 shrink-0">
+                            <StreamContent />
+                            <div className="p-3.5 border-t border-cream-300 bg-white shrink-0">
                                 <form onSubmit={handleSubmit} className="relative">
                                     <input
                                         type="text"
@@ -449,19 +473,19 @@
                                         onChange={(e) => setChatInput(e.target.value)}
                                         placeholder="Define system architecture..."
                                         disabled={isProcessing}
-                                        className={`w-full bg-zinc-950 border border-zinc-700 text-[13px] rounded-lg px-4 py-3 pr-12 focus:outline-none focus:border-indigo-500 transition-all placeholder:text-zinc-600 disabled:opacity-60 ${isProcessing ? 'glow-active border-indigo-500' : ''}`}
+                                        className={`w-full bg-cream-50 border border-cream-400 text-[13px] rounded-xl px-4 py-3 pr-12 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
                                     />
                                     <button
                                         type="submit"
                                         disabled={isProcessing || !chatInput.trim()}
-                                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-md transition-all ${isProcessing || !chatInput.trim() ? 'text-zinc-700 bg-zinc-900' : 'text-white bg-indigo-600 hover:bg-indigo-500 glow-active'}`}
+                                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
                                     >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                                             <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                         </svg>
                                     </button>
                                 </form>
-                                <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-zinc-600">
+                                <div className="mt-2 flex items-center justify-between text-[9px] font-mono text-stone-400">
                                     <span>ENTER TO ROUTE DIRECTIVE</span>
                                     <span>SWARM · 4 PROVIDERS</span>
                                 </div>
@@ -469,22 +493,22 @@
                         </aside>
 
                         {/* ---- Workspace Panel ---- */}
-                        <section className="flex-1 flex flex-col bg-zinc-950 min-w-0">
-                            <div className="h-11 border-b border-zinc-800 flex items-center px-4 gap-1 shrink-0">
+                        <section className="flex-1 flex flex-col bg-cream-100 min-w-0">
+                            <div className="h-11 border-b border-cream-300 bg-white/70 flex items-center px-3 lg:px-4 gap-1 shrink-0 overflow-x-auto custom-scrollbar">
                                 {tabDefs.map(t => (
                                     <button
                                         key={t.id}
                                         onClick={() => setActiveTab(t.id)}
-                                        className={`relative text-[11px] font-medium tracking-wider px-3 py-2 transition-colors ${activeTab === t.id ? 'text-zinc-100' : 'text-zinc-600 hover:text-zinc-400'}`}
+                                        className={`relative text-[10px] lg:text-[11px] font-medium tracking-wider px-3 py-2 whitespace-nowrap transition-colors ${activeTab === t.id ? 'text-ember-600' : 'text-stone-400 hover:text-stone-600'}`}
                                     >
                                         {t.label}
                                         {activeTab === t.id && (
-                                            <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-indigo-500 glow-active"></span>
+                                            <span className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full brand-gradient"></span>
                                         )}
                                     </button>
                                 ))}
                                 <div className="flex-1"></div>
-                                <span className="text-[10px] font-mono text-zinc-600 hidden md:block">
+                                <span className="text-[9px] font-mono text-stone-400 hidden md:block">
                                     {isProcessing ? 'LAT ' + latency + 'ms' : (lastRun ? 'LAST RUN ' + lastRun.latency_ms + 'ms' : 'BUILD READY')}
                                 </span>
                             </div>
@@ -493,25 +517,24 @@
                                 {/* Preview Canvas */}
                                 <div className={`absolute inset-0 ${activeTab === 'canvas' ? 'block' : 'hidden'}`}>
                                     {previewHtml ? (
-                                        <div className="absolute inset-0 m-4 rounded-xl border border-zinc-800 overflow-hidden flex flex-col bg-zinc-950">
-                                            <div className="h-9 bg-zinc-900/95 border-b border-zinc-800 flex items-center px-3 gap-3 shrink-0">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse glow-active"></span>
-                                                <span className="text-[10px] font-mono tracking-wider text-zinc-400">LIVE PREVIEW</span>
+                                        <div className="absolute inset-2 lg:inset-4 rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden flex flex-col">
+                                            <div className="h-9 bg-white border-b border-cream-200 flex items-center px-3 gap-2.5 shrink-0">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500 animate-pulse glow-active"></span>
+                                                <span className="text-[9px] font-mono tracking-wider text-stone-500">LIVE PREVIEW</span>
                                                 {lastRun && (
                                                     <>
-                                                        <span className="text-zinc-700">|</span>
-                                                        <span className="text-[10px] font-mono text-zinc-500">{lastRun.provider} · {lastRun.model}</span>
-                                                        <span className="text-[10px] font-mono text-zinc-600">{lastRun.latency_ms}ms</span>
-                                                        <span className="text-[10px] font-mono text-zinc-600">{lastRun.artifacts.length} artifact{(lastRun.artifacts.length !== 1 ? 's' : '')}</span>
+                                                        <span className="text-cream-400">|</span>
+                                                        <span className="text-[9px] font-mono text-stone-400 truncate hidden sm:block">{lastRun.provider} · {lastRun.model}</span>
+                                                        <span className="text-[9px] font-mono text-stone-400 hidden sm:block">{lastRun.latency_ms}ms</span>
                                                         {lastRun.review && lastRun.review.applied && (
-                                                            <span className="text-[10px] font-mono text-indigo-400/90 border border-indigo-500/30 px-1.5 py-0.5 rounded">REVIEWED</span>
+                                                            <span className="text-[9px] font-mono text-ember-600 bg-ember-50 border border-ember-200 px-1.5 py-0.5 rounded">REVIEWED</span>
                                                         )}
                                                     </>
                                                 )}
                                                 <div className="flex-1"></div>
                                                 <button
                                                     onClick={() => setRefreshTick(t => t + 1)}
-                                                    className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 transition-colors"
+                                                    className="text-[9px] font-mono text-stone-400 hover:text-ember-600 transition-colors"
                                                 >
                                                     REFRESH
                                                 </button>
@@ -521,29 +544,28 @@
                                                 title="Nexus Generated App"
                                                 sandbox="allow-scripts"
                                                 srcDoc={previewHtml}
-                                                className="flex-1 w-full border-0 bg-zinc-950"
+                                                className="flex-1 w-full border-0 bg-white"
                                             ></iframe>
                                         </div>
                                     ) : (
-                                        <div className="absolute inset-0 m-4 grid-bg rounded-xl border border-zinc-800 relative overflow-hidden">
+                                        <div className="absolute inset-2 lg:inset-4 rounded-2xl bg-white border border-cream-300 shadow-soft grid-bg relative overflow-hidden">
                                             <div className="scanline-track absolute inset-x-0 top-0 h-full pointer-events-none">
-                                                {isProcessing && <div className="w-full h-16 bg-gradient-to-b from-transparent via-indigo-500/10 to-transparent animate-scanline"></div>}
+                                                {isProcessing && <div className="w-full h-16 bg-gradient-to-b from-transparent via-ember-400/10 to-transparent animate-scanline"></div>}
                                             </div>
                                             <div className="absolute inset-0 flex items-center justify-center">
-                                                <div className="text-center">
-                                                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-lg border border-zinc-800 bg-zinc-900 mb-4">
-                                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-zinc-600">
-                                                            <rect x="3" y="4" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.4"/>
-                                                            <path d="M8 21h8M12 18v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                                                <div className="text-center px-6">
+                                                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-ember-50 border border-ember-200 mb-4">
+                                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-ember-500">
+                                                            <rect x="3" y="4" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.5"/>
+                                                            <path d="M8 21h8M12 18v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                                                         </svg>
                                                     </div>
-                                                    <div className="text-[11px] font-mono tracking-[0.2em] text-zinc-600 mb-1">IFRAME SANDBOX ENGINE</div>
-                                                    <div className="text-[11px] font-mono text-zinc-700">AWAITING PIPELINE OUTPUT</div>
-                                                    <div className="text-[10px] font-mono text-zinc-700 mt-3">RUN THE PIPELINE TO SEED THE CANVAS</div>
+                                                    <div className="text-[10px] font-mono tracking-[0.2em] text-stone-400 mb-1">IFRAME SANDBOX ENGINE</div>
+                                                    <div className="text-[10px] font-mono text-stone-300">AWAITING PIPELINE OUTPUT</div>
+                                                    <div className="text-[9px] font-mono text-stone-300 mt-3">RUN THE PIPELINE TO SEED THE CANVAS</div>
                                                 </div>
                                             </div>
-                                            <div className="absolute top-2 left-2 text-[9px] font-mono text-zinc-700 tracking-wider">CANVAS-01</div>
-                                            <div className="absolute bottom-2 right-2 text-[9px] font-mono text-zinc-700 tracking-wider">1920 × 1080</div>
+                                            <div className="absolute top-2 left-3 text-[9px] font-mono text-stone-300 tracking-wider">CANVAS-01</div>
                                         </div>
                                     )}
                                 </div>
@@ -555,49 +577,49 @@
 
                                 {/* Agent Memory */}
                                 <div className={`absolute inset-0 ${activeTab === 'memory' ? 'block' : 'hidden'} overflow-y-auto custom-scrollbar`}>
-                                    <div className="p-6 max-w-3xl">
+                                    <div className="p-4 lg:p-6 max-w-3xl">
                                         <div className="flex items-center justify-between mb-5">
                                             <div>
-                                                <div className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 mb-1">RECURSIVE MEMORY</div>
-                                                <div className="text-[12px] text-zinc-600">Lessons extracted after every execution. Injected into the next run.</div>
+                                                <div className="text-[10px] font-semibold tracking-[0.18em] text-stone-500 mb-1">RECURSIVE MEMORY</div>
+                                                <div className="text-[11px] text-stone-400">Lessons extracted after every execution. Injected into the next run.</div>
                                             </div>
                                             <button
                                                 onClick={() => setMemoryEpoch(e => e + 1)}
-                                                className="text-[10px] font-mono border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 px-2.5 py-1.5 rounded-md transition-colors"
+                                                className="text-[9px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-2.5 py-1.5 rounded-lg transition-colors"
                                             >
                                                 REFRESH
                                             </button>
                                         </div>
 
                                         {memoryData ? (
-                                            <div className="grid grid-cols-4 gap-3 mb-6">
+                                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
                                                 {[
                                                     { k: 'TOTAL RUNS', v: memoryData.total_runs },
                                                     { k: 'SUCCESSFUL', v: memoryData.successful_runs },
                                                     { k: 'MEMORY VERSION', v: memoryData.memory_version || 1 },
                                                     { k: 'LESSONS', v: memoryLessons.length },
                                                 ].map(s => (
-                                                    <div key={s.k} className="border border-zinc-800 bg-zinc-900 rounded-lg px-4 py-3">
-                                                        <div className="text-[9px] font-mono tracking-wider text-zinc-600 mb-1.5">{s.k}</div>
-                                                        <div className="text-xl font-mono text-zinc-200">{s.v}</div>
+                                                    <div key={s.k} className="bg-white border border-cream-300 rounded-2xl shadow-soft px-4 py-3.5">
+                                                        <div className="text-[8px] font-mono tracking-wider text-stone-400 mb-1.5">{s.k}</div>
+                                                        <div className="text-xl font-mono text-stone-800">{s.v}</div>
                                                     </div>
                                                 ))}
                                             </div>
                                         ) : (
-                                            <div className="border border-dashed border-zinc-800 rounded-lg px-4 py-8 text-center mb-6">
-                                                <div className="text-[11px] font-mono text-zinc-600">MEMORY STORE UNREACHABLE IN THIS CONTEXT</div>
-                                                <div className="text-[11px] text-zinc-700 mt-1">Deploy to GitHub Pages or execute a pipeline run to populate.</div>
+                                            <div className="border border-dashed border-cream-400 bg-white/60 rounded-2xl px-4 py-8 text-center mb-6">
+                                                <div className="text-[10px] font-mono text-stone-400">MEMORY STORE UNREACHABLE IN THIS CONTEXT</div>
+                                                <div className="text-[10px] text-stone-400 mt-1">Deploy to GitHub Pages or execute a pipeline run to populate.</div>
                                             </div>
                                         )}
 
                                         {memoryLessons.length === 0 && memoryData && (
-                                            <div className="text-[12px] text-zinc-600 font-mono">No lessons recorded yet. First pipeline run seeds the memory store.</div>
+                                            <div className="text-[11px] text-stone-400 font-mono">No lessons recorded yet. First pipeline run seeds the memory store.</div>
                                         )}
                                         <div className="space-y-2">
                                             {memoryLessons.slice(0, 25).map((l, i) => (
-                                                <div key={i} className="flex gap-3 border border-zinc-800/80 bg-zinc-900/60 rounded-lg px-4 py-3">
-                                                    <span className="text-[10px] font-mono text-indigo-400/70 pt-0.5">L-{String(memoryLessons.length - i).padStart(2, '0')}</span>
-                                                    <span className="text-[12px] leading-relaxed text-zinc-300">{l}</span>
+                                                <div key={i} className="flex gap-3 bg-white border border-cream-300 rounded-2xl shadow-soft px-4 py-3">
+                                                    <span className="text-[9px] font-mono text-ember-500 pt-0.5">L-{String(memoryLessons.length - i).padStart(2, '0')}</span>
+                                                    <span className="text-[12px] leading-relaxed text-stone-600">{l}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -606,19 +628,19 @@
 
                                 {/* System Logs */}
                                 <div className={`absolute inset-0 ${activeTab === 'logs' ? 'block' : 'hidden'}`}>
-                                    <div ref={logRef} className="h-full overflow-y-auto custom-scrollbar px-5 py-4 font-mono text-[11px] leading-relaxed space-y-1">
+                                    <div ref={logRef} className="h-full overflow-y-auto custom-scrollbar px-4 lg:px-5 py-4 font-mono text-[10px] lg:text-[11px] leading-relaxed space-y-1">
                                         {logs.map((l, i) => (
                                             <div key={i} className="flex gap-3 whitespace-pre-wrap">
-                                                <span className="text-zinc-700 shrink-0">{l.ts}</span>
-                                                <span className={`shrink-0 w-16 ${l.tone === 'active' ? 'text-indigo-400' : l.tone === 'ok' ? 'text-zinc-300' : l.tone === 'info' ? 'text-zinc-500' : 'text-zinc-600'}`}>[{l.tag}]</span>
-                                                <span className={l.tone === 'active' ? 'text-indigo-200/80' : l.tone === 'ok' ? 'text-zinc-300' : 'text-zinc-500'}>{l.text}</span>
+                                                <span className="text-stone-400 shrink-0">{l.ts}</span>
+                                                <span className={`shrink-0 w-16 ${l.tone === 'active' ? 'text-ember-600' : l.tone === 'ok' ? 'text-stone-600' : l.tone === 'info' ? 'text-stone-500' : 'text-stone-400'}`}>[{l.tag}]</span>
+                                                <span className={l.tone === 'active' ? 'text-ember-700/80' : l.tone === 'ok' ? 'text-stone-600' : 'text-stone-500'}>{l.text}</span>
                                             </div>
                                         ))}
                                         {!isProcessing && (
                                             <div className="flex gap-3 pt-2">
-                                                <span className="text-zinc-700">--</span>
-                                                <span className="text-zinc-700">[SHELL]</span>
-                                                <span className="text-zinc-600 animate-pulse">▊</span>
+                                                <span className="text-stone-400">--</span>
+                                                <span className="text-stone-400">[SHELL]</span>
+                                                <span className="text-stone-400 animate-pulse">▊</span>
                                             </div>
                                         )}
                                     </div>
@@ -627,15 +649,15 @@
                         </section>
                     </div>
 
-                    {/* ============ STATUS BAR ============ */}
-                    <footer className="h-7 flex items-center px-4 border-t border-zinc-800 bg-zinc-900 shrink-0">
-                        <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-600">
-                            <span>NEXUS SWARM V3.0</span>
-                            <span className="text-zinc-800">|</span>
+                    {/* ============ STATUS BAR (desktop) ============ */}
+                    <footer className="hidden lg:flex h-7 items-center px-4 border-t border-cream-300 bg-white/90 shrink-0">
+                        <div className="flex items-center gap-4 text-[9px] font-mono text-stone-400">
+                            <span>NEXUS SWARM V4.0</span>
+                            <span className="text-cream-400">|</span>
                             <span>4 PROVIDER ROUTES</span>
-                            <span className="text-zinc-800">|</span>
+                            <span className="text-cream-400">|</span>
                             <span>RECURSIVE MEMORY</span>
-                            <span className="text-zinc-800">|</span>
+                            <span className="text-cream-400">|</span>
                             <span>REVIEW PASS</span>
                         </div>
                         <div className="flex-1 flex justify-center">
@@ -644,70 +666,114 @@
                                     const lit = isProcessing && i <= currentStage;
                                     return (
                                         <div key={s.id} className="flex items-center gap-1.5">
-                                            <span className={`text-[9px] font-mono tracking-wider ${lit ? 'text-indigo-300' : 'text-zinc-700'}`}>{s.label}</span>
-                                            <span className={`w-1.5 h-1.5 rounded-full transition-all ${lit ? 'bg-indigo-400 glow-active' : 'bg-zinc-800'}`}></span>
-                                            {i < PIPELINE_STAGES.length - 1 && <span className="text-zinc-800">·</span>}
+                                            <span className={`text-[8px] font-mono tracking-wider ${lit ? 'text-ember-600' : 'text-stone-300'}`}>{s.label}</span>
+                                            <span className={`w-1.5 h-1.5 rounded-full transition-all ${lit ? 'bg-ember-500 glow-active' : 'bg-cream-300'}`}></span>
+                                            {i < PIPELINE_STAGES.length - 1 && <span className="text-cream-400">·</span>}
                                         </div>
                                     );
                                 })}
                             </div>
                         </div>
-                        <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-600">
-                            <span>LAT <span className="text-zinc-400">{isProcessing ? latency : (lastRun ? lastRun.latency_ms : 0)}ms</span></span>
-                            <span className="text-zinc-800">|</span>
-                            <span>MEM <span className="text-zinc-400">{memoryData ? memoryLessons.length : '--'}</span></span>
+                        <div className="flex items-center gap-4 text-[9px] font-mono text-stone-400">
+                            <span>LAT <span className="text-stone-600">{isProcessing ? latency : (lastRun ? lastRun.latency_ms : 0)}ms</span></span>
+                            <span className="text-cream-400">|</span>
+                            <span>MEM <span className="text-stone-600">{memoryData ? memoryLessons.length : '--'}</span></span>
                         </div>
                     </footer>
 
+                    {/* ============ MOBILE DOCK ============ */}
+                    <div className="lg:hidden shrink-0 border-t border-cream-300 bg-white/95 backdrop-blur px-3 pt-2 pb-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+                        {isProcessing && (
+                            <div className="flex items-center gap-2 mb-2 px-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500 animate-pulse"></span>
+                                <span className="text-[9px] font-mono text-ember-600 tracking-wider">{PIPELINE_STAGES[currentStage >= 0 ? currentStage : 0].label} · {providerTag}</span>
+                                <div className="flex-1 h-1 bg-cream-200 rounded-full overflow-hidden ml-1">
+                                    <div className="h-full brand-gradient rounded-full transition-all duration-500" style={{ width: ((currentStage + 1) / PIPELINE_STAGES.length * 100) + '%' }}></div>
+                                </div>
+                            </div>
+                        )}
+                        <form onSubmit={handleSubmit} className="relative">
+                            <input
+                                type="text"
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                onFocus={() => setShowStream(true)}
+                                placeholder="Directive to Nexus..."
+                                disabled={isProcessing}
+                                className={`w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3 pr-12 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
+                            />
+                            <button
+                                type="submit"
+                                disabled={isProcessing || !chatInput.trim()}
+                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                    <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
+
+                    {/* ============ MOBILE THOUGHT STREAM PANEL ============ */}
+                    {showStream && (
+                        <div className="lg:hidden absolute inset-0 z-40 flex flex-col bg-cream-100">
+                            <div className="h-12 flex items-center justify-between px-4 border-b border-cream-300 bg-white shrink-0">
+                                <span className="text-[10px] font-semibold tracking-[0.18em] text-stone-500">COMMAND STREAM</span>
+                                <button onClick={() => setShowStream(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
+                            </div>
+                            <div className="flex-1 min-h-0"><StreamContent /></div>
+                        </div>
+                    )}
+
                     {/* ============ REMOTE CONTROL MODAL ============ */}
                     {showRemote && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-                            <div className="w-[520px] max-w-[92vw] rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl glow-strong">
-                                <div className="flex items-center justify-between px-5 h-12 border-b border-zinc-800">
-                                    <span className="text-[11px] font-semibold tracking-[0.18em] text-zinc-200">REMOTE CONTROL</span>
-                                    <button onClick={() => setShowRemote(false)} className="text-zinc-500 hover:text-zinc-200 text-sm px-2">X</button>
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
+                            <div className="w-full max-w-[520px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
+                                <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
+                                    <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">REMOTE CONTROL</span>
+                                    <button onClick={() => setShowRemote(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                 </div>
                                 <div className="p-5 space-y-4">
                                     <div>
-                                        <div className="text-[10px] font-mono text-zinc-500 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
+                                        <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
                                         <input
                                             type="password"
                                             value={remoteToken}
                                             onChange={(e) => setRemoteToken(e.target.value)}
                                             placeholder="github_pat_..."
-                                            className="w-full bg-zinc-950 border border-zinc-700 text-[12px] font-mono rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500 transition-all placeholder:text-zinc-700"
+                                            className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400"
                                         />
-                                        <div className="text-[10px] text-zinc-600 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write. Revoke it anytime on GitHub.</div>
+                                        <div className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write. Revoke it anytime on GitHub.</div>
                                     </div>
                                     <div>
-                                        <div className="text-[10px] font-mono text-zinc-500 mb-1.5 tracking-wider">DIRECTIVE</div>
+                                        <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">DIRECTIVE</div>
                                         <textarea
                                             value={remoteDirective}
                                             onChange={(e) => setRemoteDirective(e.target.value)}
                                             rows="3"
                                             placeholder="Generate an interactive operations dashboard..."
-                                            className="w-full bg-zinc-950 border border-zinc-700 text-[12px] rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500 transition-all placeholder:text-zinc-700 resize-none"
+                                            className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 resize-none"
                                         ></textarea>
                                     </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 flex-wrap">
                                         <button
                                             onClick={handleRemoteDispatch}
                                             disabled={remoteBusy || !remoteToken.trim() || !remoteDirective.trim()}
-                                            className="text-[11px] font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-md tracking-wider transition-all glow-active disabled:opacity-40 disabled:glow-none"
+                                            className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft disabled:opacity-40"
                                         >
                                             {remoteBusy ? 'ENGAGED...' : 'DISPATCH DIRECTIVE'}
                                         </button>
-                                        <span className="text-[11px] font-mono text-zinc-500">{githubRepo()}</span>
+                                        <span className="text-[10px] font-mono text-stone-400">{githubRepo()}</span>
                                     </div>
                                     {remoteStatus && (
-                                        <div className={`text-[11px] font-mono px-3 py-2 rounded-md border ${remoteStatus.startsWith('ERROR') ? 'border-red-500/40 text-red-300' : 'border-indigo-500/30 text-indigo-300'}`}>
+                                        <div className={`text-[10px] font-mono px-3 py-2 rounded-xl border ${remoteStatus.startsWith('ERROR') ? 'border-red-200 bg-red-50 text-red-500' : 'border-ember-200 bg-ember-50 text-ember-600'}`}>
                                             {remoteStatus}
                                         </div>
                                     )}
-                                    <div className="flex gap-4 text-[10px] font-mono text-zinc-600 pt-1">
-                                        <a href={actionsUrl()} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">RUN LOG</a>
-                                        <a href={'https://idkwhattonametsbro.github.io/Nexus/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">LATEST APP</a>
-                                        <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">CREATE TOKEN</a>
+                                    <div className="flex gap-4 text-[9px] font-mono text-stone-400 pt-1">
+                                        <a href={actionsUrl()} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">RUN LOG</a>
+                                        <a href={'https://idkwhattonametsbro.github.io/Nexus/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">LATEST APP</a>
+                                        <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">CREATE TOKEN</a>
                                     </div>
                                 </div>
                             </div>

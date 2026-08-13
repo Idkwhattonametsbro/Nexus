@@ -6,7 +6,7 @@ on:
       prompt:
         description: 'Architecture directive'
         required: true
-        default: 'Generate an interactive dashboard structure utilizing strict dark mode aesthetics.'
+        default: 'Generate an interactive dashboard in a light premium style: creamy white background, soft warm borders, orange accents, rounded cards, clean typography. Standalone HTML with inline CSS.'
       mode:
         description: 'Execution context (full | code | research_only | fast)'
         required: true

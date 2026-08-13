@@ -1,8 +1,8 @@
 # Nexus Autonomous Workspace
 
-An autonomous software architecture system: a browser-based control surface (React + Tailwind + Monaco) hosted free on GitHub Pages, wired to a resilient multi-agent Python backend that runs on GitHub Actions, routes across multiple current-generation model providers with automatic fallback, remembers what it learns across runs, reviews and polishes its own output, self-heals failed generations, and commits its own work back into the repository.
+An autonomous software architecture system: a light, premium, phone-friendly control surface (React + Tailwind + Monaco) hosted free on GitHub Pages, wired to a resilient multi-agent Python backend that runs on GitHub Actions, routes across multiple current-generation model providers with automatic fallback, remembers what it learns across runs, reviews and polishes its own output, self-heals failed generations, and commits its own work back into the repository.
 
-Strict zinc/slate palette throughout. Indigo glow reserved for active processing states and primary actions. No emoji anywhere in the UI or the Python output streams.
+Design language: creamy white, soft warm borders, premium orange accents. Fully responsive (phone + desktop). No emoji anywhere in the UI or the Python output streams.
 
 ## Repository Structure
 
@@ -124,11 +124,28 @@ python -m unittest discover -s tests -v
 
 The CI workflow runs the same suite on every push touching `src/`.
 
+## Zero-Cost Mode
+
+No paid API credit required. The router falls back automatically:
+
+- **Groq (free tier)** - carries code generation, reflection, and review.
+- **Tavily (free tier)** - carries live research.
+- DeepSeek / OpenRouter / OpenAI keys are optional upgrades; when their accounts
+  have no credit, the router now fails them fast (non-retryable 402) and lands on
+  Groq within seconds instead of burning retry backoff.
+- Free-tier rate limits are handled by per-provider retry with backoff and the
+  workflow concurrency guard.
+
 ## Design Constraints
 
-- Strict zinc/slate palette; indigo glow only on active processing states and primary actions.
-- No emoji in the UI or Python output streams.
-- Recursive memory: each run adds exactly one lesson (deduplicated); the last 10 lessons are injected into the system prompt of the next run.
+- Light premium palette: creamy white background, white cards, soft warm borders,
+  and a single orange accent reserved for active processing states and primary
+  actions. No emoji anywhere in the UI or the Python output streams.
+- Fully responsive: the control surface adapts to phones (stacked layout with a
+  bottom directive dock and slide-up thought stream) and desktops (sidebar
+  layout with status bar).
+- Recursive memory: each run adds exactly one lesson (deduplicated); the last 10
+  lessons are injected into the system prompt of the next run.
 - Review pass: generated HTML is critiqued by a second model before it is committed.
 
 ## Troubleshooting

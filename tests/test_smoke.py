@@ -95,6 +95,22 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(out, "ok")
         self.assertEqual(calls["n"], 2)
 
+    def test_non_retryable_fails_fast(self):
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        os.environ["OPENROUTER_API_KEY"] = "or-fake"
+        calls = {"n": 0}
+
+        def dead(url, **kwargs):
+            calls["n"] += 1
+            return mock.Mock(status_code=402)
+
+        with mock.patch("router.time.sleep") as sleep, mock.patch("router.requests.post", side_effect=dead):
+            with self.assertRaises(RuntimeError):
+                router.ModelRouter.call_llm("write html", task_type="code")
+        # One attempt per provider, zero backoff sleeps, both skipped fast.
+        self.assertEqual(calls["n"], 2)
+        sleep.assert_not_called()
+
     def test_all_providers_exhausted_raises(self):
         os.environ["GROQ_API_KEY"] = "groq-fake"
         with mock.patch("router.time.sleep"), mock.patch(

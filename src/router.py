@@ -7,6 +7,10 @@ DEFAULT_TIMEOUT = 60
 MAX_ATTEMPTS = 3
 BACKOFF_BASE = 2.0
 
+# Non-retryable client errors (bad key, no credit, forbidden...). Failing fast
+# on these keeps the fallback chain snappy when a provider is dead (e.g. 402).
+NON_RETRYABLE = {400, 401, 402, 403, 404}
+
 # Ordered fallback chains per task type. The first provider whose key is
 # configured is the primary route; every subsequent entry is a self-healing
 # fallback if the primary provider fails or rate-limits.
@@ -148,6 +152,11 @@ class ModelRouter:
                         cls.last_route = candidate
                         print(f"[Route] Success via {candidate['provider']} ({candidate['model']})")
                         return content
+
+                    if response.status_code in NON_RETRYABLE:
+                        errors.append(f"{candidate['provider']}: HTTP {response.status_code} (non-retryable)")
+                        print(f"[Route] {candidate['provider']} HTTP {response.status_code} - skipping, moving down the chain")
+                        break
 
                     if response.status_code in (429, 500, 502, 503, 504):
                         errors.append(f"{candidate['provider']}: HTTP {response.status_code} (attempt {attempt})")
