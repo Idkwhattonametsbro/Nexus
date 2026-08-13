@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Autonomous Workspace</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs/loader.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        zinc: {
+                            850: '#1f1f22',
+                            900: '#18181b',
+                            950: '#09090b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #09090b; color: #d4d4d8; margin: 0; overflow: hidden; }
+        .glow-active { box-shadow: 0 0 15px rgba(99, 102, 241, 0.4); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        #monaco-container { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function App() {
+            const [activeTab, setActiveTab] = useState('canvas');
+            const [chatInput, setChatInput] = useState('');
+            const [messages, setMessages] = useState([{ role: 'system', content: 'Nexus Agent Initialized. Awaiting architecture instructions.' }]);
+            const [isProcessing, setIsProcessing] = useState(false);
+            const editorRef = useRef(null);
+
+            useEffect(() => {
+                require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' }});
+                require(['vs/editor/editor.main'], function() {
+                    editorRef.current = monaco.editor.create(document.getElementById('monaco-container'), {
+                        value: '<!-- Nexus Auto-Generated Code -->\n<div class="p-4 text-white">\n  Initializing...\n</div>',
+                        language: 'html',
+                        theme: 'vs-dark',
+                        minimap: { enabled: false },
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 13,
+                        padding: { top: 16 }
+                    });
+                });
+            }, []);
+
+            // Relayout the editor when switching back to the Source Code tab;
+            // otherwise Monaco can render at zero size inside the hidden container.
+            useEffect(() => {
+                if (activeTab === 'code' && editorRef.current) {
+                    setTimeout(() => editorRef.current.layout(), 50);
+                }
+            }, [activeTab]);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (!chatInput.trim()) return;
+
+                setMessages(prev => [...prev, { role: 'user', content: chatInput }]);
+                setChatInput('');
+                setIsProcessing(true);
+
+                // Simulate Agent Routing and Processing
+                setTimeout(() => {
+                    setMessages(prev => [...prev, { role: 'agent', content: 'Task received. Routing to GitHub backend engine for execution.' }]);
+                    setIsProcessing(false);
+                }, 1500);
+            };
+
+            return (
+                <div className="flex h-screen w-full bg-zinc-950">
+                    {/* Left Panel: Chat & Thought Stream */}
+                    <div className="w-1/3 flex flex-col border-r border-zinc-800 bg-zinc-900">
+                        <div className="h-14 border-b border-zinc-800 flex items-center px-4 justify-between">
+                            <span className="font-semibold text-sm tracking-wide text-zinc-100">NEXUS WORKSPACE</span>
+                            {isProcessing && <div className="w-2 h-2 rounded-full bg-indigo-500 glow-active animate-pulse"></div>}
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                            {messages.map((msg, idx) => (
+                                <div key={idx} className={`text-sm ${msg.role === 'user' ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                                    <span className="text-xs font-mono mb-1 block opacity-50">{msg.role.toUpperCase()}</span>
+                                    <div className="leading-relaxed">{msg.content}</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="p-4 border-t border-zinc-800 bg-zinc-900">
+                            <form onSubmit={handleSubmit} className="relative">
+                                <input
+                                    type="text"
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder="Define system architecture..."
+                                    className={`w-full bg-zinc-950 border border-zinc-700 text-sm rounded-md px-4 py-3 focus:outline-none focus:border-indigo-500 transition-all ${isProcessing ? 'glow-active border-indigo-500' : ''}`}
+                                />
+                            </form>
+                        </div>
+                    </div>
+
+                    {/* Right Panel: Code & Canvas Split */}
+                    <div className="w-2/3 flex flex-col bg-zinc-950">
+                        <div className="h-14 border-b border-zinc-800 flex items-center px-4 gap-4">
+                            <button
+                                onClick={() => setActiveTab('canvas')}
+                                className={`text-sm font-medium transition-colors ${activeTab === 'canvas' ? 'text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                Preview Canvas
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('code')}
+                                className={`text-sm font-medium transition-colors ${activeTab === 'code' ? 'text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                Source Code
+                            </button>
+                            <div className="flex-1"></div>
+                            <button className="text-xs font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded transition-all glow-active">
+                                Deploy to Pipeline
+                            </button>
+                        </div>
+
+                        <div className="flex-1 relative">
+                            <div className={`absolute inset-0 ${activeTab === 'canvas' ? 'block' : 'hidden'}`}>
+                                <div className="flex items-center justify-center h-full text-zinc-600 text-sm font-mono border-8 border-zinc-900 rounded-lg m-4">
+                                    [ Iframe Sandbox Engine - Awaiting GitHub Push ]
+                                </div>
+                            </div>
+                            <div className={`absolute inset-0 ${activeTab === 'code' ? 'block' : 'hidden'}`}>
+                                <div id="monaco-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
