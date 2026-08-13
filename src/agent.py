@@ -176,7 +176,9 @@ class NexusAgent:
                 rel = os.path.basename(w)
                 with open(w, "r", encoding="utf-8") as f:
                     files[f"generated/{rel}"] = f.read()
-            files["README.md"] = f"# {prompt[:60]}\n\nGenerated autonomously by the Nexus agent.\n\nSee the full report: `output/latest_report.md`"
+            with open(report_path, "r", encoding="utf-8") as f:
+                files["REPORT.md"] = f.read()
+            files["README.md"] = f"# {prompt[:60]}\n\nGenerated autonomously by the Nexus agent.\n\nSee the full report: `REPORT.md`"
             repo_name = "nexus-" + timestamp
             repo_result = GitHubRepoTool.create_repo(name=repo_name, description=prompt[:120], private=False, files=files)
             print(repo_result["message"])

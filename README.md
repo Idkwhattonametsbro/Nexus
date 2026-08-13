@@ -114,6 +114,32 @@ Five zones: **Command Stream** (directive chat + live thought stream), **Preview
 
 **Live preview**: the Preview Canvas renders `output/latest_app.html` in a sandboxed iframe with a run-info header (provider, model, latency, artifacts, review status). A seed dashboard ships in the repo; the first real pipeline run replaces it automatically. Generated apps are also directly viewable on Pages, e.g. `https://<YOUR_USERNAME>.github.io/<YOUR_REPO>/output/app_20260101_120000_0.html`.
 
+## Benchmark Results (August 2026)
+
+Five benchmark tasks across categories and difficulty levels were run against
+the live pipeline (Groq GPT-OSS-120B, zero-cost mode):
+
+| Task | Category | Difficulty | Result | Notes |
+| --- | --- | --- | --- | --- |
+| Portfolio landing page | Static HTML | Easy | PASS | Hero/about/contact, responsive, orange accents, review applied |
+| To-do app | Interactive JS | Medium | PASS | Add/complete/delete, filters, localStorage, counter, review applied |
+| Kanban board | Complex app | Hard | PASS | Drag-drop, columns, labels, localStorage, stats, review applied |
+| Create a GitHub repo (SaaS starter) | Meta / agentic | Hard | PASS* | Produced Plan + Key Assumptions + full file manifest; correctly reported missing NEXUS_GITHUB_TOKEN instead of failing silently |
+| Multi-agent architecture analysis | Reasoning | Medium | PASS | Structured markdown, 20 headings, Plan + Assumptions sections |
+
+*Repo creation: with `NEXUS_GITHUB_TOKEN` configured, the agent creates and
+seeds the repo via the GitHub API (`src/repo_tool.py`). Without it, it states
+the requirement explicitly in the run manifest.
+
+**Findings fixed after the benchmark:**
+- Reflection could learn counterproductive lessons from environment limits
+  (e.g. "never push repos" when a token was missing) - reflection now ignores
+  tool-availability events (`NO_LESSON` guard).
+- Multi-file repo tasks only extracted a few fenced blocks as artifacts - repo
+  seeding now includes the full report and every generated artifact.
+- Code detection now covers frontend/backend/api/database/docker/repository
+  prompts, so those routes get the code chain and review pass.
+
 ## Smoke Tests
 
 Run locally:

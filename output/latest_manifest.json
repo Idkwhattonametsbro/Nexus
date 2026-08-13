@@ -1,17 +1,15 @@
 {
-  "timestamp": "20260813_125635",
-  "run_id": "31702416555",
-  "prompt": "Create a complete GitHub repository for a full-stack SaaS starter project. Plan the architecture, generate all files (backend API, frontend, database schema, README, docker-compose) and push the repository to GitHub.",
-  "mode": "full",
-  "provider": "Groq",
-  "model": "openai/gpt-oss-120b",
-  "latency_ms": 10306,
+  "timestamp": "20260813_125828",
+  "run_id": "local",
+  "prompt": "Build a landing page",
+  "mode": "code",
+  "provider": "unknown",
+  "model": "unknown",
+  "latency_ms": 0,
   "artifacts": [
-    "output/script_20260813_125635_0.js",
-    "output/script_20260813_125635_1.js",
-    "output/script_20260813_125635_2.js"
+    "output/app_20260813_125828_0.html"
   ],
-  "research": true,
+  "research": false,
   "review": {
     "enabled": false,
     "applied": false

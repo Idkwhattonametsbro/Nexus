@@ -2,13 +2,11 @@
   "memory_version": 2,
   "lessons": [
     "When generating a standalone HTML dashboard, always embed all CSS inline and avoid any external dependencies.",
-    "When responding to code\u2011generation requests, provide the complete solution exactly in the format specified and omit any extra explanations or commentary.",
-    "Always provide a complete, self\u2011contained HTML file with all necessary inline CSS to fully implement the requested layout and styling.",
-    "Always deliver the requested technical architecture analysis in structured markdown, covering memory management, provider routing, self\u2011healing, failure modes, and scaling.",
-    "Always deliver fully functional, self\u2011contained code (e.g., HTML with inline CSS) accompanied by a clear, objective analysis of its design and behavior.",
-    "Never perform external actions such as creating or pushing repositories to GitHub; instead, only generate and provide the code and documentation locally."
+    "When responding to code-generation requests, provide the complete solution exactly in the format specified and never truncate it.",
+    "Always provide a complete, self-contained HTML file with all necessary inline CSS to fully implement the requested features.",
+    "Always deliver the requested technical architecture analysis in structured markdown, covering the topics specified in the directive."
   ],
   "total_runs": 9,
   "successful_runs": 9,
-  "last_run_at": "2026-08-13T12:56:35.797725+00:00"
+  "last_run_at": "2026-08-13T12:56:35.000000+00:00"
 }

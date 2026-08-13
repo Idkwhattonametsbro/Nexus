@@ -74,12 +74,18 @@ class SelfReflection:
             try:
                 reflection_prompt = (
                     f"Task Prompt: {prompt}\nExecution Output Snippet: {result[:400]}\n"
-                    "Extract ONE concise, objective rule (1 sentence max) for the agent to remember in future runs."
+                    "Extract ONE concise, objective rule (1 sentence max) about code quality, "
+                    "format, or architecture for the agent to remember in future runs. "
+                    "Never extract lessons about tool availability, API keys, permissions, or "
+                    "external service limitations - those are environment facts, not lessons. "
+                    "If the only notable event is a missing credential, output: NO_LESSON"
                 )
                 lesson = ModelRouter.call_llm(reflection_prompt, task_type="fast")
                 clean_lesson = lesson.strip().replace("\n", " ")
 
-                if clean_lesson and len(clean_lesson) < 200:
+                if "NO_LESSON" in clean_lesson.upper():
+                    print("[System] Reflection produced no lesson (environment-only event).")
+                elif clean_lesson and len(clean_lesson) < 200:
                     normalized = clean_lesson.lower()
                     existing = [l.lower() for l in data.get("lessons", [])]
                     if normalized not in existing:

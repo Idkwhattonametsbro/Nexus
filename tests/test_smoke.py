@@ -157,6 +157,15 @@ class TestReflection(unittest.TestCase):
     def test_load_memory_empty(self):
         self.assertIn("No previous lessons", SelfReflection.load_memory())
 
+    def test_no_lesson_when_environment_only_event(self):
+        with mock.patch.object(router.ModelRouter, "call_llm", return_value="NO_LESSON"):
+            lesson = SelfReflection.record_execution("task", "output", success=True)
+        self.assertIsNone(lesson)
+        with open(reflection.LESSONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(len(data["lessons"]), 0)
+        self.assertEqual(data["total_runs"], 1)
+
 
 class TestAgentFlow(unittest.TestCase):
     def setUp(self):

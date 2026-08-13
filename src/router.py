@@ -75,6 +75,7 @@ class ModelRouter:
         code_signals = (
             "code", "html", "css", "javascript", "python", "app",
             "dashboard", "component", "script", "website", "ui",
+            "frontend", "backend", "api", "database", "docker", "repository",
         )
         if any(s in lowered for s in code_signals):
             return "code"
