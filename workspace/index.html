@@ -129,19 +129,16 @@
             groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free, vision)' },
             github: { url: 'https://models.inference.ai.azure.com/chat/completions', defaultModel: 'gpt-4.1-mini', label: 'GitHub Models (free)' },
             cerebras: { url: 'https://api.cerebras.ai/v1/chat/completions', defaultModel: 'llama-3.3-70b', label: 'Cerebras (free)' },
-            openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter' },
+            openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'nvidia/nemotron-3-ultra-550b-a55b:free', label: 'OpenRouter (free models)' },
             deepseek: { url: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-v4-flash', label: 'DeepSeek' },
-            pollinations: { url: 'https://gen.pollinations.ai/v1/chat/completions', defaultModel: 'openai', label: 'Pollinations · FREE, NO KEY · 100+ models', noKey: true },
         };
 
-        const BRAIN_ORDER = ['puter', 'gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek', 'pollinations'];
+        const BRAIN_ORDER = ['puter', 'gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek'];
 
         /* ---- Multi-model chain: Puter (if signed in) -> saved keys -> keyless Pollinations (auto failover) ---- */
         let lastBrainProvider = null;
         let lastBrainFallback = null;
         function providerKey(p) {
-            const def = PROVIDER_DEFS[p];
-            if (def && def.noKey) return 'pollinations'; // keyless
             const cfg = loadBrain();
             if (cfg.keys && cfg.keys[p]) return cfg.keys[p];
             if (p === cfg.provider && cfg.key) return cfg.key; // legacy single-key
@@ -152,7 +149,6 @@
             const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
             const pool = BRAIN_ORDER.filter(p => {
                 if (p === 'puter') return true; // verified live (no popup)
-                if (PROVIDER_DEFS[p] && PROVIDER_DEFS[p].noKey) return true; // keyless
                 return !!providerKey(p);
             });
             if (chosen !== 'auto') return pool.filter(p => p === chosen);
