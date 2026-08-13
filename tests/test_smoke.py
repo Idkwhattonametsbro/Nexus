@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import glob
+import shutil
 import tempfile
 import unittest
 from unittest import mock
@@ -170,9 +171,10 @@ class TestReflection(unittest.TestCase):
 class TestAgentFlow(unittest.TestCase):
     def setUp(self):
         clear_env()
-        self._out = os.path.join(REPO_ROOT, "output")
-        for f in glob.glob(os.path.join(self._out, "*")):
-            os.remove(f)
+        # Isolate artifact writes in a temp dir so tests never touch the repo output/
+        self._tmpout = tempfile.mkdtemp(prefix="nexus_out_")
+        os.environ["OUTPUT_DIR"] = self._tmpout
+        self._out = self._tmpout
         # Isolate memory writes
         fd, self.tmp = tempfile.mkstemp(prefix="nexus_lessons_", suffix=".json")
         os.close(fd)
@@ -185,6 +187,8 @@ class TestAgentFlow(unittest.TestCase):
         reflection.LESSONS_FILE = self._orig
         if os.path.exists(self.tmp):
             os.remove(self.tmp)
+        os.environ.pop("OUTPUT_DIR", None)
+        shutil.rmtree(self._tmpout, ignore_errors=True)
 
     def test_full_flow_with_mock_llm(self):
         fake = 'Here is the component:\n```html\n<div class="p-4 text-white">Nexus Dashboard</div>\n```'

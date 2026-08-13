@@ -242,6 +242,7 @@
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
             const [openFile, setOpenFile] = useState(null);
+            const [expandedThought, setExpandedThought] = useState(null);
             const editorRef = useRef(null);
             const chatScrollRef = useRef(null);
 
@@ -313,6 +314,20 @@
                 if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
             }, [messages]);
 
+            // Keep the composer visible when the mobile keyboard opens
+            useEffect(() => {
+                const vv = window.visualViewport;
+                if (!vv) return;
+                const onResize = () => {
+                    const composer = document.getElementById('nexus-composer');
+                    if (vv.height < window.innerHeight - 120 && composer) {
+                        setTimeout(() => composer.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120);
+                    }
+                };
+                vv.addEventListener('resize', onResize);
+                return () => vv.removeEventListener('resize', onResize);
+            }, []);
+
             const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
 
             const openFileContent = (path) => {
@@ -361,29 +376,83 @@
                 finally { setRemoteBusy(false); }
             };
 
+            /* ===== Intent detection: chat vs build directive ===== */
+            const CHAT_INTENT = /^(hey|hi|hello|yo|hiya|good (morning|afternoon|evening)|thanks|thank you|wow|nice|great|ok|okay|wth|wtf|what|who|why|how|can you|are you|do you|whats up|lol|haha|no|yes|sure|help)\b/i;
+            const BUILD_INTENT = /build|make|create|generate|write|code|app|page|dashboard|tool|tracker|board|website|landing|portfolio|repo|todo|kanban|timer|calculator|ui/i;
+            const CHAT_REPLIES = [
+                "Hey! I'm Nexus - an autonomous engineering agent. I plan, generate, review, and deploy single-file apps through a live pipeline, and I remember a lesson from every run. Send me a directive like 'build me a habit tracker' or tap a quick task below.",
+                "Yo! Glad you're here. I can build dashboards, tools, trackers and mini-apps - with a review pass, recursive memory, and a live preview canvas. What should we build?",
+                "Hi! I'm Nexus. Give me a build directive and I'll route it through the swarm: plan, generate, review, deploy, then learn from it. Or ask me anything about the system.",
+            ];
+
+            const thoughtLinesFor = (directive) => {
+                const lower = directive.toLowerCase();
+                if (BUILD_INTENT.test(lower)) {
+                    return [
+                        'Parsing directive and extracting build intent.',
+                        'Resolving provider chain: Groq -> DeepSeek -> OpenRouter -> OpenAI.',
+                        'Drafting architecture: single-file artifact, inline CSS, no external dependencies.',
+                        'Planning quality review pass after generation.',
+                    ];
+                }
+                return [
+                    'Parsing operator message.',
+                    'No build intent detected - classified as conversational.',
+                    'Composing direct response from available system context.',
+                ];
+            };
+
             /* Simulated local pipeline (demo of the real GitHub pipeline) */
             const handleSubmit = (e) => {
                 e.preventDefault();
                 if (!chatInput.trim() || isProcessing) return;
                 const directive = chatInput.trim();
                 setChatInput('');
-                setIsProcessing(true);
-                const provider = ['DEEPSEEK', 'GROQ', 'OPENROUTER', 'OPENAI'][Math.floor(Math.random() * 4)];
-                setProviderTag(provider);
                 pushMessage({ id: uid(), role: 'user', text: directive, ts: stamp() });
-                const thoughtSecs = (2.8 + Math.random() * 3.5).toFixed(1);
-                setTimeout(() => pushMessage({ id: uid(), kind: 'thought', secs: thoughtSecs, ts: stamp() }), 400);
+
+                const isChat = CHAT_INTENT.test(directive) && !BUILD_INTENT.test(directive);
+                const thoughtId = uid();
+                const thoughtSecs = (2.4 + Math.random() * 2.8).toFixed(1);
+
+                if (isChat) {
+                    setTimeout(() => pushMessage({
+                        id: thoughtId, kind: 'thought', secs: thoughtSecs,
+                        lines: thoughtLinesFor(directive), ts: stamp()
+                    }), 400);
+                    setTimeout(() => {
+                        setExpandedThought(thoughtId);
+                        pushMessage({
+                            id: uid(), role: 'agent',
+                            text: CHAT_REPLIES[Math.floor(Math.random() * CHAT_REPLIES.length)],
+                            ts: stamp()
+                        });
+                    }, 1600);
+                    return;
+                }
+
+                setIsProcessing(true);
+                const provider = Math.random() < 0.7 ? 'GROQ' : ['DEEPSEEK', 'OPENROUTER', 'OPENAI'][Math.floor(Math.random() * 3)];
+                setProviderTag(provider);
+                const thoughtLines = thoughtLinesFor(directive);
+
                 setTimeout(() => pushMessage({
-                    id: uid(), kind: 'command',
-                    lines: ['$ git add output/ config/lessons_learned.json',
-                            '$ git commit -m "system: execution output and memory update [skip ci]"',
-                            '> [Route] ' + provider + ' engaged - task routed to optimal provider',
-                            '> [System] Generating architecture output...',
-                            '> [System] Review pass applied an improved artifact.',
-                            '> [System] Recursive memory state updated.'],
-                    duration: (8 + Math.random() * 9).toFixed(1) + 's',
-                    ts: stamp()
-                }), 2200);
+                    id: thoughtId, kind: 'thought', secs: thoughtSecs,
+                    lines: thoughtLines, ts: stamp()
+                }), 400);
+                setTimeout(() => {
+                    setExpandedThought(thoughtId);
+                    pushMessage({
+                        id: uid(), kind: 'command',
+                        lines: ['$ git add output/ config/lessons_learned.json',
+                                '$ git commit -m "system: execution output and memory update [skip ci]"',
+                                '> [Route] ' + provider + ' engaged - task routed to optimal provider',
+                                '> [System] Generating architecture output...',
+                                '> [System] Review pass applied an improved artifact.',
+                                '> [System] Recursive memory state updated.'],
+                        duration: (8 + Math.random() * 9).toFixed(1) + 's',
+                        ts: stamp()
+                    });
+                }, 2200);
                 setTimeout(() => {
                     const stampTs = stamp();
                     pushMessage({
@@ -391,7 +460,8 @@
                         name: 'app_' + Date.now() + '.html',
                         lang: 'HTML',
                         edits: Math.floor(2 + Math.random() * 3),
-                        content: previewHtml ? previewHtml.slice(0, 1800) : '<!DOCTYPE html>\n<!-- Generated artifact will appear here after a pipeline run -->\n<div class="app">Nexus output</div>',
+                        meta: (lastRun && lastRun.provider) ? lastRun.provider + ' · ' + lastRun.model : 'PENDING RUN',
+                        content: previewHtml ? previewHtml.slice(0, 1600) : '<!-- No pipeline output yet. -->\n<!-- Dispatch a directive to generate the first app. -->',
                         url: PAGES_ROOT + '/output/latest_app.html',
                         ts: stampTs
                     });
@@ -410,10 +480,26 @@
 
             const renderMessage = (m) => {
                 if (m.kind === 'thought') {
+                    const open = expandedThought === m.id;
                     return (
-                        <div className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 animate-fadeup py-0.5">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
-                            Thought for {m.secs}s
+                        <div className="animate-fadeup">
+                            <button
+                                onClick={() => setExpandedThought(open ? null : m.id)}
+                                className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 hover:text-ember-700 transition-colors group"
+                            >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                                Thought for {m.secs}s
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={`transition-transform ${open ? 'rotate-180' : ''} text-ember-400`}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                <span className="text-[9px] text-ember-400/70 group-hover:text-ember-600 transition-colors">{open ? 'HIDE REASONING' : 'VIEW REASONING'}</span>
+                            </button>
+                            {open && (
+                                <div className="mt-1.5 ml-1 rounded-xl border border-ember-200 bg-ember-50/70 px-3.5 py-3 space-y-1.5">
+                                    <div className="text-[8px] font-mono tracking-[0.18em] text-ember-500">REASONING TRACE</div>
+                                    {(m.lines || []).map((l, i) => (
+                                        <div key={i} className="text-[11px] font-mono leading-relaxed text-ember-900/70">▸ {l}</div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     );
                 }
@@ -445,7 +531,8 @@
                                 <span className="text-[9px] font-mono text-stone-400">×{m.edits}</span>
                                 <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-ember-600 hover:text-ember-700">OPEN ↗</a>
                             </div>
-                            <pre className="px-3.5 py-2.5 font-mono text-[10.5px] leading-relaxed text-stone-600 max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap">{m.content}</pre>
+                            {m.meta && <div className="px-3.5 py-1.5 border-b border-cream-200 text-[9px] font-mono text-stone-400 bg-cream-50/60">PROVIDER {m.meta}</div>}
+                            <pre className="px-3.5 py-2.5 font-mono text-[10.5px] leading-relaxed text-stone-600 max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap">{m.content || '<!-- no content -->'}</pre>
                         </div>
                     );
                 }
@@ -592,32 +679,39 @@
                                             </div>
                                         )}
                                     </div>
-                                    <div className="shrink-0 px-3 lg:px-6 pb-3 lg:pb-4 pt-2 max-w-3xl w-full mx-auto">
-                                        <form onSubmit={handleSubmit} className="relative">
-                                            <input
-                                                type="text"
-                                                value={chatInput}
-                                                onChange={e => setChatInput(e.target.value)}
-                                                placeholder="Directive to Nexus..."
-                                                disabled={isProcessing}
-                                                className={`w-full bg-white border border-cream-400 text-[13px] rounded-2xl px-4 py-3.5 pr-24 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 shadow-soft ${isProcessing ? 'glow-active border-ember-300' : ''}`}
-                                            />
-                                            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                                <select value={mode} onChange={e => setMode(e.target.value)} className="md:hidden text-[9px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer w-16">
-                                                    {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                                </select>
-                                                <button
-                                                    type="submit"
-                                                    disabled={isProcessing || !chatInput.trim()}
-                                                    className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
-                                                >
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                                                </button>
+                                    <div id="nexus-composer" className="shrink-0 px-2 lg:px-6 pb-3 lg:pb-4 pt-2 max-w-3xl w-full mx-auto">
+                                        <div className="rounded-2xl border border-cream-300 bg-white/95 backdrop-blur shadow-lift p-2.5">
+                                            <div className="flex items-center justify-between px-1 pb-1.5">
+                                                <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">DIRECTIVE TO NEXUS</span>
+                                                <span className="text-[8px] font-mono text-ember-600">MODE {mode.toUpperCase()}</span>
                                             </div>
-                                        </form>
+                                            <form onSubmit={handleSubmit} className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={chatInput}
+                                                    onChange={e => setChatInput(e.target.value)}
+                                                    onFocus={() => { const c = document.getElementById('nexus-composer'); if (c) setTimeout(() => c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120); }}
+                                                    placeholder="Directive to Nexus..."
+                                                    disabled={isProcessing}
+                                                    className={`w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3.5 pr-24 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
+                                                />
+                                                <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                    <select value={mode} onChange={e => setMode(e.target.value)} className="md:hidden text-[9px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer w-16">
+                                                        {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                                    </select>
+                                                    <button
+                                                        type="submit"
+                                                        disabled={isProcessing || !chatInput.trim()}
+                                                        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
+                                                    >
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
                                         <div className="mt-1.5 flex items-center justify-between text-[8px] font-mono text-stone-400">
-                                            <span>ENTER TO ROUTE DIRECTIVE</span>
-                                            <span className="hidden sm:block">MODE {mode.toUpperCase()} · 4 PROVIDERS · RECURSIVE MEMORY</span>
+                                            <span>ENTER TO ROUTE · TAP THOUGHTS TO EXPAND</span>
+                                            <span className="hidden sm:block">4 PROVIDERS · RECURSIVE MEMORY</span>
                                         </div>
                                     </div>
                                 </div>

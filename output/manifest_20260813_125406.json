@@ -1,0 +1,18 @@
+{
+  "timestamp": "20260813_125406",
+  "run_id": "31702217758",
+  "prompt": "Build a minimalist personal portfolio landing page: hero, about, contact. Cream white with warm orange accents, soft rounded cards. Standalone HTML, inline CSS only.",
+  "mode": "full",
+  "provider": "Groq",
+  "model": "openai/gpt-oss-120b",
+  "latency_ms": 6527,
+  "artifacts": [
+    "output/app_20260813_125406_0.html"
+  ],
+  "research": true,
+  "review": {
+    "enabled": true,
+    "applied": true
+  },
+  "repo_creation": null
+}

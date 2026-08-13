@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jane Doe – Designer & Front‑End Developer</title>
+    <meta name="description" content="Minimalist portfolio of Jane Doe, a creative designer and front‑end developer.">
+    <style>
+        :root {
+            --bg-cream: #fffdf8;
+            --accent-orange: #ff8c42;
+            --accent-dark: #e07a38;
+            --text-dark: #333;
+            --card-bg: #ffffff;
+            --radius: 10px;
+            --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            font-family: var(--font-stack);
+            background: var(--bg-cream);
+            color: var(--text-dark);
+            line-height: 1.6;
+        }
+        a { color: var(--accent-orange); text-decoration: none; }
+        a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+            outline: 2px solid var(--accent-orange);
+            outline-offset: 2px;
+        }
+        header {
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo { font-weight: 600; font-size: 1.2rem; }
+        nav ul {
+            list-style: none;
+            display: flex;
+            gap: 1.5rem;
+            margin: 0;
+            padding: 0;
+        }
+        nav a { font-weight: 500; }
+        .hero {
+            min-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 2rem;
+        }
+        .hero h1 { font-size: 2.8rem; margin-bottom: .5rem; }
+        .hero p { font-size: 1.2rem; margin-bottom: 1.5rem; max-width: 600px; }
+        .btn-primary {
+            background: var(--accent-orange);
+            color: #fff;
+            padding: .8rem 1.6rem;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background .3s;
+        }
+        .btn-primary:hover,
+        .btn-primary:focus-visible { background: var(--accent-dark); }
+        section {
+            padding: 4rem 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 2rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .about h2,
+        .contact h2 { margin-bottom: 1rem; }
+        .contact form {
+            display: grid;
+            gap: 1rem;
+        }
+        .contact label {
+            font-size: .9rem;
+            margin-bottom: .2rem;
+            display: block;
+        }
+        .contact input,
+        .contact textarea {
+            width: 100%;
+            padding: .8rem;
+            border: 1px solid #ccc;
+            border-radius: var(--radius);
+            font-family: inherit;
+        }
+        .contact button {
+            justify-self: start;
+            background: var(--accent-orange);
+            color: #fff;
+            border: none;
+            padding: .8rem 1.5rem;
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: background .3s;
+        }
+        .contact button:hover,
+        .contact button:focus-visible { background: var(--accent-dark); }
+        footer {
+            text-align: center;
+            padding: 2rem;
+            font-size: .9rem;
+            color: #777;
+        }
+        @media (max-width: 600px) {
+            .hero h1 { font-size: 2.2rem; }
+            .hero p { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">Jane Doe</div>
+    <nav aria-label="Main navigation">
+        <ul>
+            <li><a href="#hero">Home</a></li>
+            <li><a href="#about">About</a></li>
+            <li><a href="#contact">Contact</a></li>
+        </ul>
+    </nav>
+</header>
+
+<section id="hero" class="hero">
+    <h1>Jane Doe</h1>
+    <p>Creative Designer &amp; Front‑End Developer crafting clean, user‑focused digital experiences.</p>
+    <button class="btn-primary" onclick="document.getElementById('contact').scrollIntoView({behavior:'smooth'});">
+        Get in Touch
+    </button>
+</section>
+
+<section id="about" class="about">
+    <div class="card">
+        <h2>About Me</h2>
+        <p>Hello! I'm Jane, a passionate designer who loves turning ideas into elegant, functional interfaces. With a background in visual design and a knack for clean code, I enjoy building experiences that feel both beautiful and intuitive.</p>
+        <p>When I'm not designing, you can find me sketching, exploring nature, or experimenting with new front‑end technologies.</p>
+    </div>
+</section>
+
+<section id="contact" class="contact">
+    <div class="card">
+        <h2>Contact</h2>
+        <form action="#" method="POST" novalidate>
+            <div>
+                <label for="name">Your Name</label>
+                <input id="name" type="text" name="name" placeholder="Your Name" required>
+            </div>
+            <div>
+                <label for="email">Your Email</label>
+                <input id="email" type="email" name="email" placeholder="Your Email" required>
+            </div>
+            <div>
+                <label for="message">Your Message</label>
+                <textarea id="message" name="message" rows="4" placeholder="Your Message" required></textarea>
+            </div>
+            <button type="submit">Send Message</button>
+        </form>
+    </div>
+</section>
+
+<footer>
+    © 2026 Jane Doe. All rights reserved.
+</footer>
+
+</body>
+</html>

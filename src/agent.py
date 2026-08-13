@@ -46,7 +46,8 @@ def run_context() -> str:
 
 class NexusAgent:
     def __init__(self):
-        os.makedirs("output", exist_ok=True)
+        self.output_dir = os.getenv("OUTPUT_DIR", "output")
+        os.makedirs(self.output_dir, exist_ok=True)
 
     def process_task(self, prompt: str, mode: str):
         print(f"[System] Initiating task execution: {prompt}")
@@ -127,7 +128,7 @@ class NexusAgent:
         provider = ModelRouter.last_route.get("provider") if ModelRouter.last_route else "unknown"
         model = ModelRouter.last_route.get("model") if ModelRouter.last_route else "unknown"
 
-        report_path = f"output/report_{timestamp}.md"
+        report_path = f"{self.output_dir}/report_{timestamp}.md"
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(f"# Nexus Execution Report\n\n")
             f.write(f"**Task:** {prompt}\n\n")
@@ -143,7 +144,7 @@ class NexusAgent:
             for i, block in enumerate(artifacts.get(ext, [])):
                 if not block or len(block.strip()) < 10:
                     continue
-                code_path = f"output/{prefix}_{timestamp}_{i}.{ext}"
+                code_path = f"{self.output_dir}/{prefix}_{timestamp}_{i}.{ext}"
                 with open(code_path, "w", encoding="utf-8") as f:
                     f.write(block.strip() + "\n")
                 written.append(code_path)
@@ -186,19 +187,19 @@ class NexusAgent:
         else:
             manifest["repo_creation"] = None
 
-        manifest_path = f"output/manifest_{timestamp}.json"
+        manifest_path = f"{self.output_dir}/manifest_{timestamp}.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
         print(f"[System] Run manifest saved to {manifest_path}")
 
         # Pointer files consumed by the GitHub Pages control surface.
-        with open("output/latest_manifest.json", "w", encoding="utf-8") as f:
+        with open(f"{self.output_dir}/latest_manifest.json", "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
-        shutil.copy(report_path, "output/latest_report.md")
+        shutil.copy(report_path, f"{self.output_dir}/latest_report.md")
         html_artifacts = [w for w in written if w.endswith(".html")]
         if html_artifacts:
-            shutil.copy(html_artifacts[0], "output/latest_app.html")
-            print("[System] Live preview pointer updated (output/latest_app.html)")
+            shutil.copy(html_artifacts[0], f"{self.output_dir}/latest_app.html")
+            print(f"[System] Live preview pointer updated ({self.output_dir}/latest_app.html)")
 
         SelfReflection.record_execution(prompt, response_text, success=True)
         print("[System] Task sequence completed.")
