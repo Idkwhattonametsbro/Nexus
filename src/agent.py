@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from router import ModelRouter
 from tools.search import ResearchTool
 from reflection import SelfReflection
+from repo_tool import GitHubRepoTool
 
 load_dotenv()
 
@@ -62,11 +63,19 @@ class NexusAgent:
             research_data = ResearchTool.search_web(prompt)
 
         context = run_context()
+        complex_task = any(s in prompt.lower() for s in ("repo", "repository", "project", "architecture", "plan"))
         system_prompt = (
             "You are Nexus, an elite autonomous software architecture system. "
             "Output functional, pristine code blocks without commentary unless requested. "
             f"Adhere strictly to these parameters learned from prior executions:\n{past_memory}"
         )
+        if complex_task:
+            system_prompt += (
+                "\n\nThis is a complex multi-step directive. Begin your response with a concise "
+                "'## Plan' section listing the architecture steps, then state any key assumptions, "
+                "then deliver the complete artifacts in fenced code blocks. Never claim an action "
+                "you did not perform."
+            )
         if context:
             system_prompt += f"\n\n[Execution Context]\n{context}"
 
@@ -155,6 +164,26 @@ class NexusAgent:
             "research": bool(research_data),
             "review": review,
         }
+
+        # Repo creation: if the directive asks for a repository, seed a new
+        # GitHub repo from the generated artifacts (requires NEXUS_GITHUB_TOKEN).
+        repo_result = None
+        repo_intent = any(s in prompt.lower() for s in ("create a github repo", "create a github repository", "push the repository", "new github repository", "create the repository"))
+        if repo_intent:
+            print("[System] Repo creation requested. Checking GitHub tooling...")
+            files = {}
+            for w in written:
+                rel = os.path.basename(w)
+                with open(w, "r", encoding="utf-8") as f:
+                    files[f"generated/{rel}"] = f.read()
+            files["README.md"] = f"# {prompt[:60]}\n\nGenerated autonomously by the Nexus agent.\n\nSee the full report: `output/latest_report.md`"
+            repo_name = "nexus-" + timestamp
+            repo_result = GitHubRepoTool.create_repo(name=repo_name, description=prompt[:120], private=False, files=files)
+            print(repo_result["message"])
+            manifest["repo_creation"] = repo_result
+        else:
+            manifest["repo_creation"] = None
+
         manifest_path = f"output/manifest_{timestamp}.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)

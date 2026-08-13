@@ -44,18 +44,12 @@
                         ember: '0 0 0 1px rgba(249,115,22,0.30), 0 6px 22px rgba(249,115,22,0.22)',
                     },
                     keyframes: {
-                        fadeup: {
-                            '0%': { opacity: '0', transform: 'translateY(5px)' },
-                            '100%': { opacity: '1', transform: 'translateY(0)' },
-                        },
-                        scanline: {
-                            '0%': { transform: 'translateY(-100%)' },
-                            '100%': { transform: 'translateY(100%)' },
-                        },
+                        fadeup: { '0%': { opacity: '0', transform: 'translateY(5px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+                        pulseDot: { '0%,100%': { opacity: '0.4' }, '50%': { opacity: '1' } },
                     },
                     animation: {
                         fadeup: 'fadeup 0.28s ease-out both',
-                        scanline: 'scanline 2.4s ease-in-out infinite',
+                        pulseDot: 'pulseDot 1.2s ease-in-out infinite',
                     },
                 },
             },
@@ -63,24 +57,19 @@
     </script>
     <style>
         body { background-color: #FAF8F4; color: #44403C; margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
-        .glow-active { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.30), 0 0 16px rgba(249, 115, 22, 0.20); }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #D9D2C4; border-radius: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #C4BBA9; }
         ::selection { background: rgba(253, 186, 116, 0.45); }
         #monaco-container { width: 100%; height: 100%; }
-        .grid-bg {
-            background-image:
-                linear-gradient(rgba(196, 181, 253, 0) 0px, transparent 0px),
-                linear-gradient(rgba(193, 178, 155, 0.16) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(193, 178, 155, 0.16) 1px, transparent 1px);
-            background-size: 100% 100%, 30px 30px, 30px 30px;
-        }
-        .scanline-track { overflow: hidden; }
         .brand-gradient { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
         .btn-primary { background: linear-gradient(135deg, #FB923C 0%, #EA580C 100%); }
         .btn-primary:hover { filter: brightness(1.06); }
+        .glow-active { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.30), 0 0 16px rgba(249, 115, 22, 0.20); }
+        #particle-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+        .app-layer { position: relative; z-index: 10; }
+        .glass { background: rgba(253, 252, 250, 0.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
     </style>
 </head>
 <body>
@@ -88,88 +77,180 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback } = React;
 
-        const PIPELINE_STAGES = [
-            { id: 'route', label: 'ROUTE' },
-            { id: 'research', label: 'RESEARCH' },
-            { id: 'generate', label: 'GENERATE' },
-            { id: 'compile', label: 'COMPILE' },
-            { id: 'reflect', label: 'REFLECT' },
+        const REPO = 'Idkwhattonametsbro/Nexus';
+        const PAGES_ROOT = 'https://idkwhattonametsbro.github.io/Nexus';
+        const ACTIONS_URL = 'https://github.com/' + REPO + '/actions/workflows/run_agent.yml';
+        const API = 'https://api.github.com/repos/' + REPO;
+
+        const MODES = [
+            { id: 'full', label: 'AUTONOMOUS' },
+            { id: 'code', label: 'CODE' },
+            { id: 'research_only', label: 'RESEARCH' },
+            { id: 'fast', label: 'FAST' },
         ];
 
-        const PROVIDER_POOL = ['DEEPSEEK', 'GROQ', 'OPENROUTER', 'OPENAI'];
-        const FALLBACK_ACTIONS_URL = 'https://github.com/Idkwhattonametsbro/Nexus/actions/workflows/run_agent.yml';
-        const FALLBACK_REPO = 'Idkwhattonametsbro/Nexus';
+        const PIPELINE_STAGES = ['ROUTE', 'RESEARCH', 'GENERATE', 'COMPILE', 'REFLECT'];
 
-        function actionsUrl() {
-            try {
-                const host = window.location.hostname;
-                const path = window.location.pathname.split('/').filter(Boolean);
-                if (host.endsWith('github.io') && path.length >= 1) {
-                    const owner = host.split('.')[0];
-                    return 'https://github.com/' + owner + '/' + path[0] + '/actions/workflows/run_agent.yml';
-                }
-            } catch (e) {}
-            return FALLBACK_ACTIONS_URL;
+        const QUICK_TASKS = [
+            'Build a minimalist portfolio landing page (cream white, orange accents)',
+            'Build a to-do app with localStorage (light premium design)',
+            'Build a kanban board with drag and drop',
+            'Analyze the architecture of an autonomous agent system',
+        ];
+
+        function stamp() { const d = new Date(); const p = n => String(n).padStart(2, '0'); return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); }
+        function uid() { return Math.random().toString(36).slice(2, 9); }
+
+        /* ============ PARTICLE BACKGROUND ============ */
+        function ParticleCanvas() {
+            const ref = useRef(null);
+            useEffect(() => {
+                const canvas = ref.current;
+                const ctx = canvas.getContext('2d');
+                let raf, particles = [], w, h, dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+                const resize = () => {
+                    w = canvas.clientWidth; h = canvas.clientHeight;
+                    canvas.width = w * dpr; canvas.height = h * dpr;
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                };
+                const count = () => (w < 768 ? 42 : 85);
+
+                const seed = () => {
+                    const n = count();
+                    particles = Array.from({ length: n }, () => ({
+                        x: Math.random() * w,
+                        y: Math.random() * h,
+                        vx: (Math.random() - 0.5) * 0.25,
+                        vy: (Math.random() - 0.5) * 0.25,
+                        r: 1 + Math.random() * 2.2,
+                        warm: Math.random() < 0.6,
+                    }));
+                };
+
+                const step = () => {
+                    ctx.clearRect(0, 0, w, h);
+                    for (const p of particles) {
+                        p.x += p.vx; p.y += p.vy;
+                        if (p.x < -10) p.x = w + 10; if (p.x > w + 10) p.x = -10;
+                        if (p.y < -10) p.y = h + 10; if (p.y > h + 10) p.y = -10;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                        ctx.fillStyle = p.warm ? 'rgba(249,115,22,0.28)' : 'rgba(120,105,85,0.20)';
+                        ctx.fill();
+                    }
+                    for (let i = 0; i < particles.length; i++) {
+                        for (let j = i + 1; j < particles.length; j++) {
+                            const a = particles[i], b = particles[j];
+                            const dx = a.x - b.x, dy = a.y - b.y;
+                            const d2 = dx * dx + dy * dy;
+                            if (d2 < 130 * 130) {
+                                const alpha = (1 - Math.sqrt(d2) / 130) * 0.14;
+                                ctx.beginPath();
+                                ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+                                ctx.strokeStyle = 'rgba(234,88,12,' + alpha + ')';
+                                ctx.lineWidth = 1;
+                                ctx.stroke();
+                            }
+                        }
+                    }
+                    raf = requestAnimationFrame(step);
+                };
+
+                resize(); seed(); step();
+                const onResize = () => { resize(); seed(); };
+                window.addEventListener('resize', onResize);
+                return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', onResize); };
+            }, []);
+            return <canvas id="particle-canvas" ref={ref}></canvas>;
         }
 
-        function githubRepo() {
-            try {
-                const host = window.location.hostname;
-                const path = window.location.pathname.split('/').filter(Boolean);
-                if (host.endsWith('github.io') && path.length >= 1) {
-                    const owner = host.split('.')[0];
-                    return owner + '/' + path[0];
-                }
-            } catch (e) {}
-            return FALLBACK_REPO;
+        /* ============ FILE TREE ============ */
+        function FileTree({ tree, hidden, onOpenFile }) {
+            const folders = {};
+            const files = [];
+            (tree || []).forEach(t => {
+                if (t.type !== 'blob') return;
+                const parts = t.path.split('/');
+                if (parts.length === 1) files.push(t);
+                else { (folders[parts[0]] = folders[parts[0]] || []).push(t); }
+            });
+            const sorted = Object.keys(folders).sort();
+            const extColor = name => {
+                if (name.endsWith('.py')) return 'text-ember-600';
+                if (name.endsWith('.html')) return 'text-ember-500';
+                if (name.endsWith('.js')) return 'text-amber-600';
+                if (name.endsWith('.json')) return 'text-stone-400';
+                if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'text-stone-500';
+                return 'text-stone-500';
+            };
+            return (
+                <div className="text-[11px] font-mono">
+                    {sorted.map(f => (
+                        <div key={f} className="mb-2">
+                            <div className="text-[9px] tracking-[0.15em] text-stone-400 mb-1 px-1">/{f}</div>
+                            {folders[f].map(t => {
+                                const base = t.path.split('/').slice(1).join('/');
+                                return (
+                                    <button key={t.path} onClick={() => onOpenFile && onOpenFile(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500">
+                                        <span className={'text-[10px] ' + extColor(t.path)}>▸</span>
+                                        <span className="truncate flex-1">{base}</span>
+                                        <span className="text-[9px] text-stone-400">{t.size ? Math.max(1, Math.round(t.size / 1024)) + 'k' : ''}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ))}
+                    {files.length > 0 && (
+                        <div className="mb-2">
+                            <div className="text-[9px] tracking-[0.15em] text-stone-400 mb-1 px-1">/ROOT</div>
+                            {files.filter(f => hidden || !f.path.startsWith('.')).map(t => (
+                                <button key={t.path} onClick={() => onOpenFile && onOpenFile(t.path)} className="flex items-center gap-2 w-full text-left px-2 py-1 rounded-lg hover:bg-ember-50 hover:text-ember-700 transition-colors text-stone-500">
+                                    <span className={'text-[10px] ' + extColor(t.path)}>▸</span>
+                                    <span className="truncate flex-1">{t.path}</span>
+                                    <span className="text-[9px] text-stone-400">{t.size ? Math.max(1, Math.round(t.size / 1024)) + 'k' : ''}</span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
         }
 
-        function stamp() {
-            const d = new Date();
-            const p = (n) => String(n).padStart(2, '0');
-            return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
-        }
-
+        /* ============ APP ============ */
         function App() {
-            const [activeTab, setActiveTab] = useState('canvas');
+            const [activeView, setActiveView] = useState('chat'); // chat | files | runs | memory (mobile)
             const [chatInput, setChatInput] = useState('');
             const [messages, setMessages] = useState([
-                { role: 'system', content: 'Nexus Agent Initialized. Awaiting architecture instructions.', ts: stamp() }
+                { id: uid(), role: 'system', text: 'Nexus Agent initialized. Awaiting architecture instructions.', ts: stamp() },
+                { id: uid(), role: 'agent', text: 'I am Nexus. Describe what you want built and I will plan, generate, review, and deploy it through the autonomous pipeline. Try a quick task below or type your own directive.', ts: stamp() },
             ]);
             const [isProcessing, setIsProcessing] = useState(false);
-            const [currentStage, setCurrentStage] = useState(-1);
+            const [mode, setMode] = useState('full');
             const [providerTag, setProviderTag] = useState('--');
-            const [latency, setLatency] = useState(0);
-            const [runCount, setRunCount] = useState(0);
-            const [logs, setLogs] = useState([
-                { ts: stamp(), tag: 'BOOT', text: 'Nexus workspace mounted. Control surface online.', tone: 'dim' },
-                { ts: stamp(), tag: 'ROUTE', text: 'Provider routes available: 4', tone: 'dim' },
-                { ts: stamp(), tag: 'MEM', text: 'Recursive memory store linked to config/lessons_learned.json', tone: 'dim' },
-            ]);
             const [memoryData, setMemoryData] = useState(null);
             const [memoryEpoch, setMemoryEpoch] = useState(0);
+            const [tree, setTree] = useState(null);
+            const [treeHidden, setTreeHidden] = useState(false);
+            const [treeEpoch, setTreeEpoch] = useState(0);
+            const [runs, setRuns] = useState([]);
             const [lastRun, setLastRun] = useState(null);
             const [previewHtml, setPreviewHtml] = useState(null);
-            const [previewKey, setPreviewKey] = useState(0);
-            const [refreshTick, setRefreshTick] = useState(0);
             const [showRemote, setShowRemote] = useState(false);
             const [remoteToken, setRemoteToken] = useState('');
             const [remoteDirective, setRemoteDirective] = useState('');
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
-            const [showStream, setShowStream] = useState(false);
+            const [openFile, setOpenFile] = useState(null);
             const editorRef = useRef(null);
-            const logRef = useRef(null);
             const chatScrollRef = useRef(null);
 
-            // Monaco bootstrap with a warm light theme
+            /* Monaco */
             useEffect(() => {
                 require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs' }});
                 require(['vs/editor/editor.main'], function() {
                     monaco.editor.defineTheme('nexus-light', {
-                        base: 'vs',
-                        inherit: true,
-                        rules: [],
+                        base: 'vs', inherit: true, rules: [],
                         colors: {
                             'editor.background': '#FAF8F4',
                             'editor.lineHighlightBackground': '#F3EEE6',
@@ -180,605 +261,472 @@
                             'editorIndentGuide.background': '#EAE3D6',
                             'editorIndentGuide.activeBackground': '#D6CFC2',
                             'minimap.background': '#FAF8F4',
-                            'scrollbarSlider.background': '#D9D2C4',
-                            'scrollbarSlider.hoverBackground': '#C4BBA9',
                         }
                     });
                     editorRef.current = monaco.editor.create(document.getElementById('monaco-container'), {
-                        value: '<!-- Nexus Auto-Generated Code -->\n<!--\n  Deploy a directive in the Command Stream, then run the\n  pipeline from Actions. Generated artifacts are committed\n  to the repository and surfaced here.\n-->\n<div class="p-4 text-stone-800">\n  Initializing...\n</div>',
-                        language: 'html',
+                        value: '// Select a file from the workspace tree to inspect it.\n',
+                        language: 'plaintext',
                         theme: 'nexus-light',
                         minimap: { enabled: false },
                         fontFamily: 'JetBrains Mono',
-                        fontSize: 13,
-                        lineHeight: 20,
-                        padding: { top: 16 },
+                        fontSize: 12,
+                        lineHeight: 19,
+                        padding: { top: 12 },
+                        readOnly: true,
                         scrollBeyondLastLine: false,
                     });
                 });
             }, []);
 
-            // Relayout Monaco when its tab becomes active
             useEffect(() => {
-                if (activeTab === 'code' && editorRef.current) {
-                    setTimeout(() => editorRef.current.layout(), 50);
-                }
-            }, [activeTab]);
+                if (activeView === 'files' && editorRef.current) setTimeout(() => editorRef.current.layout(), 50);
+            }, [activeView, openFile]);
 
-            // Fetch recursive memory from the deployed repository
+            /* Memory */
             useEffect(() => {
                 fetch('config/lessons_learned.json', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject(new Error('not found')))
-                    .then(setMemoryData)
-                    .catch(() => setMemoryData(null));
+                    .then(r => r.ok ? r.json() : Promise.reject())
+                    .then(setMemoryData).catch(() => setMemoryData(null));
             }, [memoryEpoch]);
 
-            // Fetch the latest pipeline run (manifest + compiled app) for the live preview
+            /* File tree */
+            useEffect(() => {
+                fetch(API + '/git/trees/main?recursive=1', { cache: 'no-store' })
+                    .then(r => r.ok ? r.json() : Promise.reject())
+                    .then(d => setTree(d.tree || []))
+                    .catch(() => setTree(null));
+            }, [treeEpoch]);
+
+            /* Runs + preview */
             useEffect(() => {
                 fetch('../output/latest_manifest.json', { cache: 'no-store' })
-                    .then(r => r.ok ? r.json() : Promise.reject(new Error('not found')))
-                    .then(d => { setLastRun(d); setPreviewKey(k => k + 1); })
-                    .catch(() => setLastRun(null));
+                    .then(r => r.ok ? r.json() : Promise.reject()).then(setLastRun).catch(() => setLastRun(null));
                 fetch('../output/latest_app.html', { cache: 'no-store' })
-                    .then(r => r.ok ? r.text() : Promise.reject(new Error('not found')))
-                    .then(t => setPreviewHtml(t))
-                    .catch(() => setPreviewHtml(null));
-            }, [refreshTick]);
+                    .then(r => r.ok ? r.text() : Promise.reject()).then(setPreviewHtml).catch(() => setPreviewHtml(null));
+                fetch(API + '/actions/runs?per_page=8', { cache: 'no-store' })
+                    .then(r => r.ok ? r.json() : Promise.reject())
+                    .then(d => setRuns(d.workflow_runs || []))
+                    .catch(() => setRuns([]));
+            }, [memoryEpoch]);
 
-            // Auto-scroll chat and logs
             useEffect(() => {
                 if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-            }, [messages, showStream]);
-            useEffect(() => {
-                if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-            }, [logs]);
+            }, [messages]);
 
-            const pushLog = useCallback((tag, text, tone) => {
-                setLogs(prev => [...prev.slice(-200), { ts: stamp(), tag, text, tone: tone || 'dim' }]);
-            }, []);
+            const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
 
-            // Remote control: dispatch the pipeline directly from the browser.
-            useEffect(() => {
-                try {
-                    const saved = localStorage.getItem('nexus_remote_token') || '';
-                    setRemoteToken(saved);
-                } catch (e) {}
-            }, []);
+            const openFileContent = (path) => {
+                setOpenFile(path);
+                setActiveView('files');
+                fetch('https://raw.githubusercontent.com/' + REPO + '/main/' + path, { cache: 'no-store' })
+                    .then(r => r.ok ? r.text() : Promise.reject())
+                    .then(txt => {
+                        const lang = path.endsWith('.py') ? 'python' : path.endsWith('.html') ? 'html' : path.endsWith('.js') ? 'javascript' : path.endsWith('.json') ? 'json' : path.endsWith('.yml') || path.endsWith('.yaml') ? 'yaml' : path.endsWith('.css') ? 'css' : path.endsWith('.md') ? 'markdown' : 'plaintext';
+                        if (editorRef.current) { monaco.editor.setModelLanguage(editorRef.current.getModel(), lang); editorRef.current.setValue(txt); }
+                    })
+                    .catch(() => { if (editorRef.current) editorRef.current.setValue('// Failed to load ' + path); });
+            };
+
+            /* Remote dispatch */
+            useEffect(() => { try { setRemoteToken(localStorage.getItem('nexus_remote_token') || ''); } catch (e) {} }, []);
 
             const handleRemoteDispatch = async () => {
                 if (!remoteToken.trim() || !remoteDirective.trim() || remoteBusy) return;
-                const repo = githubRepo();
-                setRemoteBusy(true);
-                setRemoteStatus('DISPATCHING...');
+                setRemoteBusy(true); setRemoteStatus('DISPATCHING...');
                 try {
-                    const res = await fetch('https://api.github.com/repos/' + repo + '/actions/workflows/run_agent.yml/dispatches', {
+                    const res = await fetch(API + '/actions/workflows/run_agent.yml/dispatches', {
                         method: 'POST',
-                        headers: {
-                            'Authorization': 'Bearer ' + remoteToken.trim(),
-                            'Accept': 'application/vnd.github+json',
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ ref: 'main', inputs: { prompt: remoteDirective.trim(), mode: 'full' } }),
+                        headers: { 'Authorization': 'Bearer ' + remoteToken.trim(), 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ref: 'main', inputs: { prompt: remoteDirective.trim(), mode } }),
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     try { localStorage.setItem('nexus_remote_token', remoteToken.trim()); } catch (e) {}
-                    pushLog('REMOTE', 'Directive dispatched from browser to ' + repo, 'active');
-                    setRemoteStatus('RUN STARTED - POLLING STATUS...');
+                    setRemoteStatus('RUN STARTED - TRACKING...');
                     let run = null;
-                    for (let i = 0; i < 8; i++) {
+                    for (let i = 0; i < 10; i++) {
                         await new Promise(r => setTimeout(r, 4000));
-                        const r2 = await fetch('https://api.github.com/repos/' + repo + '/actions/runs?event=workflow_dispatch&per_page=1', {
-                            headers: { 'Authorization': 'Bearer ' + remoteToken.trim(), 'Accept': 'application/vnd.github+json' },
-                        });
+                        const r2 = await fetch(API + '/actions/runs?event=workflow_dispatch&per_page=1', { headers: { 'Authorization': 'Bearer ' + remoteToken.trim(), 'Accept': 'application/vnd.github+json' } });
                         const d = await r2.json();
                         if (d.workflow_runs && d.workflow_runs.length) {
                             run = d.workflow_runs[0];
                             if (run.status !== 'queued' && run.status !== 'in_progress') break;
-                            setRemoteStatus(run.status.toUpperCase() + ' - RUN #' + run.run_number);
+                            setRemoteStatus('RUN #' + run.run_number + ' - ' + run.status.toUpperCase());
                         }
                     }
                     if (run) {
                         setRemoteStatus('RUN #' + run.run_number + ' - ' + (run.status === 'completed' ? run.conclusion.toUpperCase() : run.status.toUpperCase()));
-                        setRefreshTick(t => t + 1);
                         setMemoryEpoch(e => e + 1);
                     }
-                } catch (e) {
-                    setRemoteStatus('ERROR: ' + e.message);
-                    pushLog('REMOTE', 'Dispatch failed: ' + e.message, 'info');
-                } finally {
-                    setRemoteBusy(false);
-                }
+                } catch (e) { setRemoteStatus('ERROR: ' + e.message); }
+                finally { setRemoteBusy(false); }
             };
 
+            /* Simulated local pipeline (demo of the real GitHub pipeline) */
             const handleSubmit = (e) => {
                 e.preventDefault();
                 if (!chatInput.trim() || isProcessing) return;
-
                 const directive = chatInput.trim();
-                setMessages(prev => [...prev, { role: 'user', content: directive, ts: stamp() }]);
                 setChatInput('');
                 setIsProcessing(true);
-                setRunCount(c => c + 1);
-                setCurrentStage(0);
-
-                const provider = PROVIDER_POOL[Math.floor(Math.random() * PROVIDER_POOL.length)];
+                const provider = ['DEEPSEEK', 'GROQ', 'OPENROUTER', 'OPENAI'][Math.floor(Math.random() * 4)];
                 setProviderTag(provider);
-                pushLog('TASK', 'Directive accepted: ' + directive, 'info');
-                pushLog('ROUTE', 'Router engaged. Candidate chain resolved.', 'info');
-                pushLog('ROUTE', 'Selected provider: ' + provider, 'active');
-
-                let stage = 0;
-                let totalMs = 0;
-                const stageMs = [420, 520, 760, 460, 380];
-
-                const tick = () => {
-                    stage += 1;
-                    if (stage >= PIPELINE_STAGES.length) {
-                        totalMs += 240;
-                        setLatency(totalMs);
-                        setIsProcessing(false);
-                        setCurrentStage(-1);
-                        setProviderTag('--');
-                        setMemoryEpoch(e => e + 1);
-                        setRefreshTick(t => t + 1);
-                        setMessages(prev => [...prev, {
-                            role: 'agent',
-                            content: 'Execution complete. Report and artifacts committed to the repository. Recursive memory state updated.',
-                            ts: stamp()
-                        }]);
-                        pushLog('SYSTEM', 'Task sequence completed. Memory store refreshed.', 'ok');
-                        return;
-                    }
-                    const s = PIPELINE_STAGES[stage];
-                    totalMs += stageMs[stage];
-                    setCurrentStage(stage);
-                    setLatency(totalMs);
-                    if (s.id === 'research') pushLog('RESEARCH', 'Fetching live external context (Tavily)', 'info');
-                    if (s.id === 'generate') pushLog('GEN', 'Generating architecture output via ' + provider, 'active');
-                    if (s.id === 'compile') pushLog('COMPILE', 'Extracting artifacts. Writing report and components.', 'info');
-                    if (s.id === 'reflect') pushLog('REFLECT', 'Extracting one lesson. Updating lessons_learned.json', 'info');
-                    setTimeout(tick, stageMs[stage] + Math.floor(Math.random() * 160));
-                };
-                setTimeout(tick, stageMs[0]);
+                pushMessage({ id: uid(), role: 'user', text: directive, ts: stamp() });
+                const thoughtSecs = (2.8 + Math.random() * 3.5).toFixed(1);
+                setTimeout(() => pushMessage({ id: uid(), kind: 'thought', secs: thoughtSecs, ts: stamp() }), 400);
+                setTimeout(() => pushMessage({
+                    id: uid(), kind: 'command',
+                    lines: ['$ git add output/ config/lessons_learned.json',
+                            '$ git commit -m "system: execution output and memory update [skip ci]"',
+                            '> [Route] ' + provider + ' engaged - task routed to optimal provider',
+                            '> [System] Generating architecture output...',
+                            '> [System] Review pass applied an improved artifact.',
+                            '> [System] Recursive memory state updated.'],
+                    duration: (8 + Math.random() * 9).toFixed(1) + 's',
+                    ts: stamp()
+                }), 2200);
+                setTimeout(() => {
+                    const stampTs = stamp();
+                    pushMessage({
+                        id: uid(), kind: 'file',
+                        name: 'app_' + Date.now() + '.html',
+                        lang: 'HTML',
+                        edits: Math.floor(2 + Math.random() * 3),
+                        content: previewHtml ? previewHtml.slice(0, 1800) : '<!DOCTYPE html>\n<!-- Generated artifact will appear here after a pipeline run -->\n<div class="app">Nexus output</div>',
+                        url: PAGES_ROOT + '/output/latest_app.html',
+                        ts: stampTs
+                    });
+                }, 5200);
+                setTimeout(() => {
+                    setIsProcessing(false); setProviderTag('--');
+                    setMemoryEpoch(e => e + 1);
+                    pushMessage({ id: uid(), role: 'agent', text: 'Task sequence completed. Report and artifacts committed to the repository. The live preview canvas now shows the generated app. Open the RUN LOG to inspect the full execution trace.', ts: stamp() });
+                }, 8000);
             };
 
             const memoryLessons = (memoryData && memoryData.lessons) ? memoryData.lessons : [];
             const statusPill = isProcessing
                 ? { label: 'PROCESSING', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
-                : (runCount > 0 ? { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' } : { label: 'IDLE', cls: 'text-stone-400 border-cream-300 bg-white' });
+                : { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' };
 
-            const tabDefs = [
-                { id: 'canvas', label: 'PREVIEW' },
-                { id: 'code', label: 'SOURCE' },
-                { id: 'memory', label: 'MEMORY' },
-                { id: 'logs', label: 'LOGS' },
-            ];
-
-            const StreamContent = ({ compact }) => (
-                <div className="flex flex-col h-full">
-                    <div className="h-10 border-b border-cream-200 flex items-center justify-between px-4 shrink-0">
-                        <span className="text-[10px] font-semibold tracking-[0.18em] text-stone-400">COMMAND STREAM</span>
-                        <span className="text-[9px] font-mono text-stone-400">{isProcessing ? 'SWARM ENGAGED' : 'AWAITING DIRECTIVE'}</span>
-                    </div>
-                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4 space-y-3.5">
-                        {messages.map((msg, idx) => (
-                            <div key={idx} className="animate-fadeup">
-                                {msg.role === 'user' ? (
-                                    <div className="flex justify-end">
-                                        <div className="max-w-[85%] bg-ember-50 border border-ember-200/70 rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-soft">
-                                            <div className="text-[9px] font-mono text-ember-500 mb-1 tracking-wider">OPERATOR · {msg.ts}</div>
-                                            <div className="text-[13px] leading-relaxed text-stone-700">{msg.content}</div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{msg.role === 'system' ? 'SYSTEM · ' + msg.ts : 'AGENT · ' + msg.ts}</div>
-                                        <div className={`text-[13px] leading-relaxed ${msg.role === 'system' ? 'text-stone-400' : 'text-stone-600'}`}>{msg.content}</div>
-                                    </div>
-                                )}
+            const renderMessage = (m) => {
+                if (m.kind === 'thought') {
+                    return (
+                        <div className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 animate-fadeup py-0.5">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                            Thought for {m.secs}s
+                        </div>
+                    );
+                }
+                if (m.kind === 'command') {
+                    return (
+                        <div className="rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden animate-fadeup">
+                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-cream-200 bg-cream-50">
+                                <span className="text-[9px] font-mono tracking-[0.15em] text-stone-400">EXECUTION · BASH</span>
+                                <span className="text-[9px] font-mono text-stone-400">{m.duration}</span>
                             </div>
-                        ))}
-
-                        {isProcessing && (
-                            <div className="rounded-2xl border border-ember-200 bg-white shadow-soft px-4 py-3.5 animate-fadeup">
-                                <div className="flex items-center justify-between mb-3">
-                                    <span className="text-[9px] font-mono tracking-wider text-ember-600">EXECUTION IN PROGRESS</span>
-                                    <span className="text-[9px] font-mono text-stone-400">{providerTag}</span>
-                                </div>
-                                <div className="space-y-2">
-                                    {PIPELINE_STAGES.map((s, i) => {
-                                        const done = i < currentStage;
-                                        const active = i === currentStage;
-                                        return (
-                                            <div key={s.id} className={`flex items-center gap-2 text-[10px] font-mono ${active ? 'text-ember-600' : done ? 'text-stone-500' : 'text-stone-300'}`}>
-                                                <span className={`w-1.5 h-1.5 rounded-full ${active ? 'bg-ember-500 animate-pulse' : done ? 'bg-ember-300' : 'bg-cream-300'}`}></span>
-                                                {s.label}
-                                                {active && <span className="text-stone-400">· RUNNING</span>}
-                                                {done && <span className="text-stone-400">· DONE</span>}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                <div className="mt-3 h-1 bg-cream-200 rounded-full overflow-hidden">
-                                    <div className="h-full brand-gradient rounded-full transition-all duration-500" style={{ width: ((currentStage + 1) / PIPELINE_STAGES.length * 100) + '%' }}></div>
-                                </div>
+                            <div className="px-3.5 py-2.5 font-mono text-[11px] leading-relaxed">
+                                {m.lines.map((l, i) => (
+                                    <div key={i} className={l.startsWith('$') ? 'text-stone-700' : l.startsWith('>') ? 'text-ember-700/70' : 'text-stone-400'}>{l}</div>
+                                ))}
                             </div>
-                        )}
+                            <div className="flex items-center gap-2 px-3.5 py-2 border-t border-cream-200 text-[10px] font-mono">
+                                <span className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-[8px]">✓</span>
+                                <span className="text-stone-500">exit 0</span>
+                            </div>
+                        </div>
+                    );
+                }
+                if (m.kind === 'file') {
+                    return (
+                        <div className="rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden animate-fadeup">
+                            <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-cream-200 bg-cream-50">
+                                <span className="text-[10px] font-mono text-stone-700 truncate flex-1">{m.name}</span>
+                                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-ember-100 text-ember-700 tracking-wider">{m.lang}</span>
+                                <span className="text-[9px] font-mono text-stone-400">×{m.edits}</span>
+                                <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-ember-600 hover:text-ember-700">OPEN ↗</a>
+                            </div>
+                            <pre className="px-3.5 py-2.5 font-mono text-[10.5px] leading-relaxed text-stone-600 max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap">{m.content}</pre>
+                        </div>
+                    );
+                }
+                if (m.role === 'user') {
+                    return (
+                        <div className="flex justify-end animate-fadeup">
+                            <div className="max-w-[85%] bg-ember-50 border border-ember-200/70 rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-soft">
+                                <div className="text-[9px] font-mono text-ember-500 mb-1 tracking-wider">YOU · {m.ts}</div>
+                                <div className="text-[13px] leading-relaxed text-stone-700">{m.text}</div>
+                            </div>
+                        </div>
+                    );
+                }
+                return (
+                    <div className="animate-fadeup">
+                        <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{m.role === 'system' ? 'SYSTEM · ' + m.ts : 'NEXUS · ' + m.ts}</div>
+                        <div className={'text-[13px] leading-relaxed ' + (m.role === 'system' ? 'text-stone-400' : 'text-stone-600')}>{m.text}</div>
                     </div>
-                </div>
-            );
+                );
+            };
 
             return (
-                <div className="flex flex-col h-screen w-full bg-cream-100 overflow-hidden">
+                <div className="h-screen w-full overflow-hidden">
+                    <ParticleCanvas />
+                    <div className="app-layer flex flex-col h-full">
 
-                    {/* ============ TOP BAR ============ */}
-                    <header className="h-13 lg:h-12 flex items-center px-4 lg:px-5 border-b border-cream-300 bg-white/90 backdrop-blur shrink-0 z-30">
-                        <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-xl brand-gradient shadow-soft flex items-center justify-center">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
-                                    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/>
-                                    <path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6"/>
-                                </svg>
-                            </div>
-                            <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V4.0</span>
-                        </div>
-
-                        <div className="flex-1 flex justify-center px-2">
-                            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-mono tracking-wider transition-all ${statusPill.cls} ${isProcessing ? 'glow-active' : ''}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${isProcessing ? 'bg-ember-500 animate-pulse' : 'bg-stone-300'}`}></span>
-                                {statusPill.label}
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 lg:gap-4">
-                            <button
-                                onClick={() => setShowStream(true)}
-                                className="lg:hidden w-8 h-8 rounded-lg border border-cream-300 bg-white text-stone-500 flex items-center justify-center relative"
-                                title="Thought stream"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                    <path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
-                                </svg>
-                                {isProcessing && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-ember-500 animate-pulse"></span>}
-                            </button>
-                            <a
-                                href={actionsUrl()}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="hidden lg:block text-[10px] font-mono btn-primary text-white px-4 py-2 rounded-lg tracking-wider transition-all shadow-soft hover:shadow-ember"
-                            >
-                                DEPLOY TO PIPELINE
-                            </a>
-                            <button
-                                onClick={() => setShowRemote(true)}
-                                className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all"
-                            >
-                                REMOTE
-                            </button>
-                        </div>
-                    </header>
-
-                    {/* ============ MAIN ============ */}
-                    <div className="flex flex-1 min-h-0">
-
-                        {/* ---- Command Stream (desktop sidebar) ---- */}
-                        <aside className="hidden lg:flex w-[360px] flex-col border-r border-cream-300 bg-white/70 shrink-0">
-                            <StreamContent />
-                            <div className="p-3.5 border-t border-cream-300 bg-white shrink-0">
-                                <form onSubmit={handleSubmit} className="relative">
-                                    <input
-                                        type="text"
-                                        value={chatInput}
-                                        onChange={(e) => setChatInput(e.target.value)}
-                                        placeholder="Define system architecture..."
-                                        disabled={isProcessing}
-                                        className={`w-full bg-cream-50 border border-cream-400 text-[13px] rounded-xl px-4 py-3 pr-12 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
-                                    />
-                                    <button
-                                        type="submit"
-                                        disabled={isProcessing || !chatInput.trim()}
-                                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
-                                    >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                            <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                    </button>
-                                </form>
-                                <div className="mt-2 flex items-center justify-between text-[9px] font-mono text-stone-400">
-                                    <span>ENTER TO ROUTE DIRECTIVE</span>
-                                    <span>SWARM · 4 PROVIDERS</span>
+                        {/* ===== TOP BAR ===== */}
+                        <header className="glass border-b border-cream-300 shrink-0 z-30">
+                            <div className="flex items-center gap-2.5 px-4 h-13 lg:h-14">
+                                <div className="w-8 h-8 rounded-xl brand-gradient shadow-soft flex items-center justify-center shrink-0">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6"/></svg>
                                 </div>
-                            </div>
-                        </aside>
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V5.0</span>
+                                    </div>
+                                    <div className="text-[9px] text-stone-400 font-mono hidden sm:block">AUTONOMOUS SOFTWARE ENGINEERING AGENT</div>
+                                </div>
 
-                        {/* ---- Workspace Panel ---- */}
-                        <section className="flex-1 flex flex-col bg-cream-100 min-w-0">
-                            <div className="h-11 border-b border-cream-300 bg-white/70 flex items-center px-3 lg:px-4 gap-1 shrink-0 overflow-x-auto custom-scrollbar">
-                                {tabDefs.map(t => (
-                                    <button
-                                        key={t.id}
-                                        onClick={() => setActiveTab(t.id)}
-                                        className={`relative text-[10px] lg:text-[11px] font-medium tracking-wider px-3 py-2 whitespace-nowrap transition-colors ${activeTab === t.id ? 'text-ember-600' : 'text-stone-400 hover:text-stone-600'}`}
-                                    >
-                                        {t.label}
-                                        {activeTab === t.id && (
-                                            <span className="absolute bottom-0 left-3 right-3 h-0.5 rounded-full brand-gradient"></span>
-                                        )}
-                                    </button>
-                                ))}
                                 <div className="flex-1"></div>
-                                <span className="text-[9px] font-mono text-stone-400 hidden md:block">
-                                    {isProcessing ? 'LAT ' + latency + 'ms' : (lastRun ? 'LAST RUN ' + lastRun.latency_ms + 'ms' : 'BUILD READY')}
-                                </span>
-                            </div>
 
-                            <div className="flex-1 relative min-h-0">
-                                {/* Preview Canvas */}
-                                <div className={`absolute inset-0 ${activeTab === 'canvas' ? 'block' : 'hidden'}`}>
-                                    {previewHtml ? (
-                                        <div className="absolute inset-2 lg:inset-4 rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden flex flex-col">
-                                            <div className="h-9 bg-white border-b border-cream-200 flex items-center px-3 gap-2.5 shrink-0">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500 animate-pulse glow-active"></span>
-                                                <span className="text-[9px] font-mono tracking-wider text-stone-500">LIVE PREVIEW</span>
-                                                {lastRun && (
-                                                    <>
-                                                        <span className="text-cream-400">|</span>
-                                                        <span className="text-[9px] font-mono text-stone-400 truncate hidden sm:block">{lastRun.provider} · {lastRun.model}</span>
-                                                        <span className="text-[9px] font-mono text-stone-400 hidden sm:block">{lastRun.latency_ms}ms</span>
-                                                        {lastRun.review && lastRun.review.applied && (
-                                                            <span className="text-[9px] font-mono text-ember-600 bg-ember-50 border border-ember-200 px-1.5 py-0.5 rounded">REVIEWED</span>
-                                                        )}
-                                                    </>
-                                                )}
-                                                <div className="flex-1"></div>
+                                <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-cream-300 bg-white">
+                                    <span className="text-[9px] font-mono text-stone-400 tracking-wider mr-1">MODE</span>
+                                    <select value={mode} onChange={e => setMode(e.target.value)} className="text-[10px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer">
+                                        {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-mono tracking-wider transition-all ${statusPill.cls} ${isProcessing ? 'glow-active' : ''}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${isProcessing ? 'bg-ember-500 animate-pulse' : 'bg-stone-300'}`}></span>
+                                    {statusPill.label}
+                                </div>
+
+                                <a href={ACTIONS_URL} target="_blank" rel="noopener noreferrer" className="hidden lg:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">
+                                    DEPLOY
+                                </a>
+                                <button onClick={() => setShowRemote(true)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all">
+                                    REMOTE
+                                </button>
+                            </div>
+                            {/* Mobile view switcher */}
+                            <div className="md:hidden flex border-t border-cream-200">
+                                {[['chat','CHAT'],['files','FILES'],['runs','RUNS'],['memory','MEM']].map(([id, label]) => (
+                                    <button key={id} onClick={() => setActiveView(id)} className={`flex-1 py-2 text-[9px] font-mono tracking-wider transition-colors ${activeView === id ? 'text-ember-600 bg-ember-50' : 'text-stone-400'}`}>{label}</button>
+                                ))}
+                            </div>
+                        </header>
+
+                        {/* ===== BODY ===== */}
+                        <div className="flex flex-1 min-h-0">
+
+                            {/* Sidebar (desktop) */}
+                            <aside className="hidden md:flex w-[250px] xl:w-[280px] flex-col border-r border-cream-300 glass shrink-0">
+                                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
+                                    <div>
+                                        <div className="flex items-center justify-between px-1 mb-1.5">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">WORKSPACE</span>
+                                            <div className="flex items-center gap-2">
+                                                <button onClick={() => setTreeHidden(!treeHidden)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">{treeHidden ? 'SHOW HIDDEN' : 'HIDE HIDDEN'}</button>
+                                                <button onClick={() => setTreeEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
+                                            </div>
+                                        </div>
+                                        {tree ? (
+                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-2">
+                                                <FileTree tree={tree} hidden={treeHidden} onOpenFile={openFileContent} />
+                                                <div className="text-[9px] font-mono text-stone-400 px-1 pt-1.5 border-t border-cream-200 mt-1.5">{tree.length} FILES TRACKED</div>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-3 text-[10px] font-mono text-stone-400">Loading tree...</div>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <div className="flex items-center justify-between px-1 mb-1.5">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">MEMORY</span>
+                                            <button onClick={() => setMemoryEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
+                                        </div>
+                                        <div className="bg-white/70 border border-cream-300 rounded-xl p-3 space-y-1.5">
+                                            {memoryData ? (
+                                                memoryLessons.length === 0 ? <div className="text-[10px] font-mono text-stone-400">No lessons yet.</div> :
+                                                memoryLessons.slice(0, 5).map((l, i) => (
+                                                    <div key={i} className="text-[10px] leading-relaxed text-stone-500"><span className="text-ember-500 font-mono">L-{String(memoryLessons.length - i).padStart(2, '0')} </span>{l}</div>
+                                                ))
+                                            ) : <div className="text-[10px] font-mono text-stone-400">Loading...</div>}
+                                            {memoryData && <div className="text-[9px] font-mono text-stone-400 pt-1 border-t border-cream-200 mt-1">{memoryData.total_runs} RUNS · {memoryData.successful_runs} OK</div>}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400 px-1 mb-1.5 block">LAST RUN</span>
+                                        {lastRun ? (
+                                            <div className="bg-white/70 border border-cream-300 rounded-xl p-3 font-mono text-[10px] space-y-1 text-stone-500">
+                                                <div><span className="text-stone-400">PROVIDER</span> <span className="text-stone-700">{lastRun.provider} · {lastRun.model}</span></div>
+                                                <div><span className="text-stone-400">LATENCY</span> <span className="text-stone-700">{lastRun.latency_ms}ms</span></div>
+                                                <div><span className="text-stone-400">ARTIFACTS</span> <span className="text-stone-700">{lastRun.artifacts.length}</span></div>
+                                                {lastRun.review && <div><span className="text-stone-400">REVIEW</span> <span className="text-ember-600">{lastRun.review.applied ? 'APPLIED' : 'APPROVED'}</span></div>}
+                                                <a className="text-ember-600 hover:text-ember-700 block pt-1" href={PAGES_ROOT + '/output/latest_app.html'} target="_blank" rel="noopener noreferrer">VIEW APP ↗</a>
+                                            </div>
+                                        ) : <div className="text-[10px] font-mono text-stone-400 px-1">No run yet.</div>}
+                                    </div>
+                                </div>
+                            </aside>
+
+                            {/* Main chat / views */}
+                            <main className="flex-1 flex flex-col min-w-0">
+                                {/* CHAT */}
+                                <div className={`flex-1 min-h-0 flex flex-col ${activeView === 'chat' ? 'flex' : 'hidden md:flex'}`}>
+                                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-3 lg:px-6 py-4 space-y-3 max-w-3xl w-full mx-auto">
+                                        {messages.map(renderMessage)}
+                                        {isProcessing && (
+                                            <div className="flex items-center gap-2 text-[10px] font-mono text-ember-600 animate-pulseDot">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500"></span>
+                                                ROUTING THROUGH SWARM · {providerTag}
+                                            </div>
+                                        )}
+                                        {!isProcessing && messages.length < 4 && (
+                                            <div className="flex flex-wrap gap-2 pt-2">
+                                                {QUICK_TASKS.map(t => (
+                                                    <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-full transition-all">
+                                                        {t}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="shrink-0 px-3 lg:px-6 pb-3 lg:pb-4 pt-2 max-w-3xl w-full mx-auto">
+                                        <form onSubmit={handleSubmit} className="relative">
+                                            <input
+                                                type="text"
+                                                value={chatInput}
+                                                onChange={e => setChatInput(e.target.value)}
+                                                placeholder="Directive to Nexus..."
+                                                disabled={isProcessing}
+                                                className={`w-full bg-white border border-cream-400 text-[13px] rounded-2xl px-4 py-3.5 pr-24 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 shadow-soft ${isProcessing ? 'glow-active border-ember-300' : ''}`}
+                                            />
+                                            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                <select value={mode} onChange={e => setMode(e.target.value)} className="md:hidden text-[9px] font-mono bg-transparent text-ember-600 focus:outline-none cursor-pointer w-16">
+                                                    {MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                                </select>
                                                 <button
-                                                    onClick={() => setRefreshTick(t => t + 1)}
-                                                    className="text-[9px] font-mono text-stone-400 hover:text-ember-600 transition-colors"
+                                                    type="submit"
+                                                    disabled={isProcessing || !chatInput.trim()}
+                                                    className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
                                                 >
-                                                    REFRESH
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                                                 </button>
                                             </div>
-                                            <iframe
-                                                key={previewKey}
-                                                title="Nexus Generated App"
-                                                sandbox="allow-scripts"
-                                                srcDoc={previewHtml}
-                                                className="flex-1 w-full border-0 bg-white"
-                                            ></iframe>
+                                        </form>
+                                        <div className="mt-1.5 flex items-center justify-between text-[8px] font-mono text-stone-400">
+                                            <span>ENTER TO ROUTE DIRECTIVE</span>
+                                            <span className="hidden sm:block">MODE {mode.toUpperCase()} · 4 PROVIDERS · RECURSIVE MEMORY</span>
                                         </div>
-                                    ) : (
-                                        <div className="absolute inset-2 lg:inset-4 rounded-2xl bg-white border border-cream-300 shadow-soft grid-bg relative overflow-hidden">
-                                            <div className="scanline-track absolute inset-x-0 top-0 h-full pointer-events-none">
-                                                {isProcessing && <div className="w-full h-16 bg-gradient-to-b from-transparent via-ember-400/10 to-transparent animate-scanline"></div>}
+                                    </div>
+                                </div>
+
+                                {/* FILES */}
+                                <div className={`flex-1 min-h-0 flex-col ${activeView === 'files' ? 'flex' : 'hidden md:flex'}`}>
+                                    <div className="flex-1 min-h-0 overflow-hidden p-3 flex flex-col">
+                                        <div className="flex items-center gap-2 mb-2 shrink-0">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">WORKSPACE TREE</span>
+                                            <button onClick={() => setTreeHidden(!treeHidden)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600 ml-auto">{treeHidden ? 'SHOW HIDDEN' : 'HIDE HIDDEN'}</button>
+                                            <button onClick={() => setTreeEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
+                                        </div>
+                                        <div className="flex-1 min-h-0 grid grid-rows-2 md:grid-rows-1 md:grid-cols-2 gap-3">
+                                            <div className="bg-white/80 border border-cream-300 rounded-2xl p-3 overflow-y-auto custom-scrollbar">
+                                                {tree ? <FileTree tree={tree} hidden={treeHidden} onOpenFile={openFileContent} /> : <div className="text-[10px] font-mono text-stone-400">Loading tree...</div>}
                                             </div>
-                                            <div className="absolute inset-0 flex items-center justify-center">
-                                                <div className="text-center px-6">
-                                                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-ember-50 border border-ember-200 mb-4">
-                                                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-ember-500">
-                                                            <rect x="3" y="4" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.5"/>
-                                                            <path d="M8 21h8M12 18v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                                        </svg>
-                                                    </div>
-                                                    <div className="text-[10px] font-mono tracking-[0.2em] text-stone-400 mb-1">IFRAME SANDBOX ENGINE</div>
-                                                    <div className="text-[10px] font-mono text-stone-300">AWAITING PIPELINE OUTPUT</div>
-                                                    <div className="text-[9px] font-mono text-stone-300 mt-3">RUN THE PIPELINE TO SEED THE CANVAS</div>
+                                            <div className="bg-white/80 border border-cream-300 rounded-2xl overflow-hidden min-h-0">
+                                                <div className="flex items-center justify-between px-3 py-2 border-b border-cream-200 bg-cream-50">
+                                                    <span className="text-[9px] font-mono text-stone-500 truncate">{openFile || 'SELECT A FILE'}</span>
+                                                    {openFile && <a className="text-[9px] font-mono text-ember-600 hover:text-ember-700" href={'https://raw.githubusercontent.com/' + REPO + '/main/' + openFile} target="_blank" rel="noopener noreferrer">RAW ↗</a>}
                                                 </div>
+                                                <div id="monaco-container" className="h-[calc(100%-33px)]"></div>
                                             </div>
-                                            <div className="absolute top-2 left-3 text-[9px] font-mono text-stone-300 tracking-wider">CANVAS-01</div>
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
 
-                                {/* Source Code */}
-                                <div className={`absolute inset-0 ${activeTab === 'code' ? 'block' : 'hidden'}`}>
-                                    <div id="monaco-container"></div>
+                                {/* RUNS */}
+                                <div className={`flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ${activeView === 'runs' ? 'flex' : 'hidden md:flex'}`}>
+                                    <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
+                                        <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">PIPELINE RUNS</span>
+                                        {runs.length === 0 && <div className="text-[11px] font-mono text-stone-400">No runs found.</div>}
+                                        {runs.map(r => (
+                                            <a key={r.id} href={r.html_url} target="_blank" rel="noopener noreferrer" className="block bg-white/80 border border-cream-300 rounded-2xl px-4 py-3 shadow-soft hover:border-ember-300 transition-all">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-1.5 h-1.5 rounded-full ${r.conclusion === 'success' ? 'bg-emerald-500' : r.conclusion === 'failure' ? 'bg-red-400' : 'bg-ember-400 animate-pulse'}`}></span>
+                                                    <span className="text-[11px] font-mono text-stone-700 flex-1">RUN #{r.run_number} · {r.name}</span>
+                                                    <span className="text-[9px] font-mono text-stone-400">{r.status === 'completed' ? (r.conclusion || '').toUpperCase() : r.status.toUpperCase()}</span>
+                                                </div>
+                                                <div className="text-[9px] font-mono text-stone-400 mt-1">{r.event.toUpperCase()} · {r.created_at ? r.created_at.replace('T', ' ').slice(0, 16) : ''}</div>
+                                            </a>
+                                        ))}
+                                    </div>
                                 </div>
 
-                                {/* Agent Memory */}
-                                <div className={`absolute inset-0 ${activeTab === 'memory' ? 'block' : 'hidden'} overflow-y-auto custom-scrollbar`}>
-                                    <div className="p-4 lg:p-6 max-w-3xl">
-                                        <div className="flex items-center justify-between mb-5">
-                                            <div>
-                                                <div className="text-[10px] font-semibold tracking-[0.18em] text-stone-500 mb-1">RECURSIVE MEMORY</div>
-                                                <div className="text-[11px] text-stone-400">Lessons extracted after every execution. Injected into the next run.</div>
-                                            </div>
-                                            <button
-                                                onClick={() => setMemoryEpoch(e => e + 1)}
-                                                className="text-[9px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-2.5 py-1.5 rounded-lg transition-colors"
-                                            >
-                                                REFRESH
-                                            </button>
+                                {/* MEMORY (mobile) */}
+                                <div className={`flex-1 min-h-0 flex-col overflow-y-auto custom-scrollbar ${activeView === 'memory' ? 'flex' : 'hidden md:flex'}`}>
+                                    <div className="p-4 max-w-3xl w-full mx-auto space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] font-mono tracking-[0.18em] text-stone-400">RECURSIVE MEMORY</span>
+                                            <button onClick={() => setMemoryEpoch(e => e + 1)} className="text-[9px] font-mono text-stone-400 hover:text-ember-600">↻</button>
                                         </div>
-
-                                        {memoryData ? (
-                                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-                                                {[
-                                                    { k: 'TOTAL RUNS', v: memoryData.total_runs },
-                                                    { k: 'SUCCESSFUL', v: memoryData.successful_runs },
-                                                    { k: 'MEMORY VERSION', v: memoryData.memory_version || 1 },
-                                                    { k: 'LESSONS', v: memoryLessons.length },
-                                                ].map(s => (
-                                                    <div key={s.k} className="bg-white border border-cream-300 rounded-2xl shadow-soft px-4 py-3.5">
-                                                        <div className="text-[8px] font-mono tracking-wider text-stone-400 mb-1.5">{s.k}</div>
-                                                        <div className="text-xl font-mono text-stone-800">{s.v}</div>
+                                        {memoryData && (
+                                            <div className="grid grid-cols-4 gap-2">
+                                                {[['RUNS', memoryData.total_runs], ['OK', memoryData.successful_runs], ['VER', memoryData.memory_version || 1], ['LESSONS', memoryLessons.length]].map(([k, v]) => (
+                                                    <div key={k} className="bg-white/80 border border-cream-300 rounded-xl px-3 py-2 text-center">
+                                                        <div className="text-[8px] font-mono text-stone-400">{k}</div>
+                                                        <div className="text-base font-mono text-stone-700">{v}</div>
                                                     </div>
                                                 ))}
                                             </div>
-                                        ) : (
-                                            <div className="border border-dashed border-cream-400 bg-white/60 rounded-2xl px-4 py-8 text-center mb-6">
-                                                <div className="text-[10px] font-mono text-stone-400">MEMORY STORE UNREACHABLE IN THIS CONTEXT</div>
-                                                <div className="text-[10px] text-stone-400 mt-1">Deploy to GitHub Pages or execute a pipeline run to populate.</div>
-                                            </div>
-                                        )}
-
-                                        {memoryLessons.length === 0 && memoryData && (
-                                            <div className="text-[11px] text-stone-400 font-mono">No lessons recorded yet. First pipeline run seeds the memory store.</div>
                                         )}
                                         <div className="space-y-2">
-                                            {memoryLessons.slice(0, 25).map((l, i) => (
-                                                <div key={i} className="flex gap-3 bg-white border border-cream-300 rounded-2xl shadow-soft px-4 py-3">
-                                                    <span className="text-[9px] font-mono text-ember-500 pt-0.5">L-{String(memoryLessons.length - i).padStart(2, '0')}</span>
-                                                    <span className="text-[12px] leading-relaxed text-stone-600">{l}</span>
-                                                </div>
+                                            {memoryLessons.map((l, i) => (
+                                                <div key={i} className="bg-white/80 border border-cream-300 rounded-xl px-4 py-3 text-[11px] leading-relaxed text-stone-600"><span className="text-ember-500 font-mono text-[9px]">L-{String(memoryLessons.length - i).padStart(2, '0')} </span>{l}</div>
                                             ))}
                                         </div>
                                     </div>
                                 </div>
+                            </main>
+                        </div>
 
-                                {/* System Logs */}
-                                <div className={`absolute inset-0 ${activeTab === 'logs' ? 'block' : 'hidden'}`}>
-                                    <div ref={logRef} className="h-full overflow-y-auto custom-scrollbar px-4 lg:px-5 py-4 font-mono text-[10px] lg:text-[11px] leading-relaxed space-y-1">
-                                        {logs.map((l, i) => (
-                                            <div key={i} className="flex gap-3 whitespace-pre-wrap">
-                                                <span className="text-stone-400 shrink-0">{l.ts}</span>
-                                                <span className={`shrink-0 w-16 ${l.tone === 'active' ? 'text-ember-600' : l.tone === 'ok' ? 'text-stone-600' : l.tone === 'info' ? 'text-stone-500' : 'text-stone-400'}`}>[{l.tag}]</span>
-                                                <span className={l.tone === 'active' ? 'text-ember-700/80' : l.tone === 'ok' ? 'text-stone-600' : 'text-stone-500'}>{l.text}</span>
-                                            </div>
-                                        ))}
-                                        {!isProcessing && (
-                                            <div className="flex gap-3 pt-2">
-                                                <span className="text-stone-400">--</span>
-                                                <span className="text-stone-400">[SHELL]</span>
-                                                <span className="text-stone-400 animate-pulse">▊</span>
-                                            </div>
-                                        )}
+                        {/* ===== REMOTE MODAL ===== */}
+                        {showRemote && (
+                            <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
+                                <div className="w-full max-w-[520px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
+                                    <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
+                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">REMOTE CONTROL</span>
+                                        <button onClick={() => setShowRemote(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
-                                </div>
-                            </div>
-                        </section>
-                    </div>
-
-                    {/* ============ STATUS BAR (desktop) ============ */}
-                    <footer className="hidden lg:flex h-7 items-center px-4 border-t border-cream-300 bg-white/90 shrink-0">
-                        <div className="flex items-center gap-4 text-[9px] font-mono text-stone-400">
-                            <span>NEXUS SWARM V4.0</span>
-                            <span className="text-cream-400">|</span>
-                            <span>4 PROVIDER ROUTES</span>
-                            <span className="text-cream-400">|</span>
-                            <span>RECURSIVE MEMORY</span>
-                            <span className="text-cream-400">|</span>
-                            <span>REVIEW PASS</span>
-                        </div>
-                        <div className="flex-1 flex justify-center">
-                            <div className="flex items-center gap-1.5">
-                                {PIPELINE_STAGES.map((s, i) => {
-                                    const lit = isProcessing && i <= currentStage;
-                                    return (
-                                        <div key={s.id} className="flex items-center gap-1.5">
-                                            <span className={`text-[8px] font-mono tracking-wider ${lit ? 'text-ember-600' : 'text-stone-300'}`}>{s.label}</span>
-                                            <span className={`w-1.5 h-1.5 rounded-full transition-all ${lit ? 'bg-ember-500 glow-active' : 'bg-cream-300'}`}></span>
-                                            {i < PIPELINE_STAGES.length - 1 && <span className="text-cream-400">·</span>}
+                                    <div className="p-5 space-y-4">
+                                        <div>
+                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
+                                            <input type="password" value={remoteToken} onChange={e => setRemoteToken(e.target.value)} placeholder="github_pat_..." className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                            <div className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write.</div>
                                         </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-4 text-[9px] font-mono text-stone-400">
-                            <span>LAT <span className="text-stone-600">{isProcessing ? latency : (lastRun ? lastRun.latency_ms : 0)}ms</span></span>
-                            <span className="text-cream-400">|</span>
-                            <span>MEM <span className="text-stone-600">{memoryData ? memoryLessons.length : '--'}</span></span>
-                        </div>
-                    </footer>
-
-                    {/* ============ MOBILE DOCK ============ */}
-                    <div className="lg:hidden shrink-0 border-t border-cream-300 bg-white/95 backdrop-blur px-3 pt-2 pb-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-                        {isProcessing && (
-                            <div className="flex items-center gap-2 mb-2 px-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-ember-500 animate-pulse"></span>
-                                <span className="text-[9px] font-mono text-ember-600 tracking-wider">{PIPELINE_STAGES[currentStage >= 0 ? currentStage : 0].label} · {providerTag}</span>
-                                <div className="flex-1 h-1 bg-cream-200 rounded-full overflow-hidden ml-1">
-                                    <div className="h-full brand-gradient rounded-full transition-all duration-500" style={{ width: ((currentStage + 1) / PIPELINE_STAGES.length * 100) + '%' }}></div>
+                                        <div>
+                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">DIRECTIVE</div>
+                                            <textarea value={remoteDirective} onChange={e => setRemoteDirective(e.target.value)} rows="3" placeholder="Generate an interactive operations dashboard..." className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 resize-none"></textarea>
+                                        </div>
+                                        <div className="flex items-center gap-3 flex-wrap">
+                                            <button onClick={handleRemoteDispatch} disabled={remoteBusy || !remoteToken.trim() || !remoteDirective.trim()} className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft disabled:opacity-40">
+                                                {remoteBusy ? 'ENGAGED...' : 'DISPATCH DIRECTIVE'}
+                                            </button>
+                                            <span className="text-[10px] font-mono text-stone-400">{REPO}</span>
+                                        </div>
+                                        {remoteStatus && (
+                                            <div className={`text-[10px] font-mono px-3 py-2 rounded-xl border ${remoteStatus.startsWith('ERROR') ? 'border-red-200 bg-red-50 text-red-500' : 'border-ember-200 bg-ember-50 text-ember-600'}`}>{remoteStatus}</div>
+                                        )}
+                                        <div className="flex gap-4 text-[9px] font-mono text-stone-400 pt-1">
+                                            <a href={ACTIONS_URL} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">RUN LOG</a>
+                                            <a href={PAGES_ROOT + '/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">LATEST APP</a>
+                                            <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">CREATE TOKEN</a>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
-                        <form onSubmit={handleSubmit} className="relative">
-                            <input
-                                type="text"
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                onFocus={() => setShowStream(true)}
-                                placeholder="Directive to Nexus..."
-                                disabled={isProcessing}
-                                className={`w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3 pr-12 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ${isProcessing ? 'glow-active border-ember-300' : ''}`}
-                            />
-                            <button
-                                type="submit"
-                                disabled={isProcessing || !chatInput.trim()}
-                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-all ${isProcessing || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft'}`}
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                                    <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                            </button>
-                        </form>
                     </div>
-
-                    {/* ============ MOBILE THOUGHT STREAM PANEL ============ */}
-                    {showStream && (
-                        <div className="lg:hidden absolute inset-0 z-40 flex flex-col bg-cream-100">
-                            <div className="h-12 flex items-center justify-between px-4 border-b border-cream-300 bg-white shrink-0">
-                                <span className="text-[10px] font-semibold tracking-[0.18em] text-stone-500">COMMAND STREAM</span>
-                                <button onClick={() => setShowStream(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
-                            </div>
-                            <div className="flex-1 min-h-0"><StreamContent /></div>
-                        </div>
-                    )}
-
-                    {/* ============ REMOTE CONTROL MODAL ============ */}
-                    {showRemote && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
-                            <div className="w-full max-w-[520px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
-                                <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
-                                    <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">REMOTE CONTROL</span>
-                                    <button onClick={() => setShowRemote(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
-                                </div>
-                                <div className="p-5 space-y-4">
-                                    <div>
-                                        <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
-                                        <input
-                                            type="password"
-                                            value={remoteToken}
-                                            onChange={(e) => setRemoteToken(e.target.value)}
-                                            placeholder="github_pat_..."
-                                            className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400"
-                                        />
-                                        <div className="text-[10px] text-stone-400 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write. Revoke it anytime on GitHub.</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">DIRECTIVE</div>
-                                        <textarea
-                                            value={remoteDirective}
-                                            onChange={(e) => setRemoteDirective(e.target.value)}
-                                            rows="3"
-                                            placeholder="Generate an interactive operations dashboard..."
-                                            className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 resize-none"
-                                        ></textarea>
-                                    </div>
-                                    <div className="flex items-center gap-3 flex-wrap">
-                                        <button
-                                            onClick={handleRemoteDispatch}
-                                            disabled={remoteBusy || !remoteToken.trim() || !remoteDirective.trim()}
-                                            className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft disabled:opacity-40"
-                                        >
-                                            {remoteBusy ? 'ENGAGED...' : 'DISPATCH DIRECTIVE'}
-                                        </button>
-                                        <span className="text-[10px] font-mono text-stone-400">{githubRepo()}</span>
-                                    </div>
-                                    {remoteStatus && (
-                                        <div className={`text-[10px] font-mono px-3 py-2 rounded-xl border ${remoteStatus.startsWith('ERROR') ? 'border-red-200 bg-red-50 text-red-500' : 'border-ember-200 bg-ember-50 text-ember-600'}`}>
-                                            {remoteStatus}
-                                        </div>
-                                    )}
-                                    <div className="flex gap-4 text-[9px] font-mono text-stone-400 pt-1">
-                                        <a href={actionsUrl()} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">RUN LOG</a>
-                                        <a href={'https://idkwhattonametsbro.github.io/Nexus/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">LATEST APP</a>
-                                        <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-ember-600">CREATE TOKEN</a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
                 </div>
             );
         }

@@ -1,17 +1,18 @@
 {
-  "timestamp": "20260813_124936",
-  "run_id": "31701853206",
-  "prompt": "Build a minimalist personal portfolio landing page: hero section, about section, contact section. Cream white background with warm orange accents, soft rounded cards. Standalone HTML, inline CSS only.",
-  "mode": "full",
-  "provider": "Groq",
-  "model": "openai/gpt-oss-120b",
-  "latency_ms": 10546,
+  "timestamp": "20260813_125151",
+  "run_id": "local",
+  "prompt": "Build a landing page",
+  "mode": "code",
+  "provider": "unknown",
+  "model": "unknown",
+  "latency_ms": 0,
   "artifacts": [
-    "output/app_20260813_124936_0.html"
+    "output/app_20260813_125151_0.html"
   ],
   "research": true,
   "review": {
     "enabled": true,
-    "applied": true
-  }
+    "applied": false
+  },
+  "repo_creation": null
 }

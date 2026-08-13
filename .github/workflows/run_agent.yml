@@ -45,6 +45,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          NEXUS_GITHUB_TOKEN: ${{ secrets.NEXUS_GITHUB_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             PROMPT='${{ github.event.client_payload.prompt }}'
@@ -68,5 +69,16 @@ jobs:
           git config --global user.email "system@users.noreply.github.com"
           git add output/ config/lessons_learned.json
           git status
-          git diff-index --quiet HEAD || git commit -m "system: execution output and memory update [skip ci]"
-          git push || (git pull --rebase --autostash && git push)
+          # Commit only if there are changes, then push with conflict auto-resolution
+          # (prefer the bot's own output files when a concurrent push collided).
+          if ! git diff-index --quiet HEAD; then
+            git commit -m "system: execution output and memory update [skip ci]"
+          fi
+          for attempt in 1 2 3; do
+            if git push; then
+              break
+            fi
+            echo "[System] Push collision detected (attempt $attempt). Rebasing with bot-preference..."
+            git pull --rebase --autostash -X theirs || git rebase --abort
+          done
+          git push || echo "[Warning] Final push failed; outputs remain in the run artifacts."
