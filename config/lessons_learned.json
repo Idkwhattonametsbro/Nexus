@@ -1,7 +1,9 @@
 {
   "memory_version": 2,
-  "lessons": [],
-  "total_runs": 0,
-  "successful_runs": 0,
-  "last_run_at": null
+  "lessons": [
+    "When generating a standalone HTML dashboard, always embed all CSS inline and avoid any external dependencies."
+  ],
+  "total_runs": 1,
+  "successful_runs": 1,
+  "last_run_at": "2026-08-13T11:27:45.228096+00:00"
 }
