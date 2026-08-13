@@ -2,9 +2,10 @@
   "memory_version": 2,
   "lessons": [
     "When generating a standalone HTML dashboard, always embed all CSS inline and avoid any external dependencies.",
-    "When responding to code\u2011generation requests, provide the complete solution exactly in the format specified and omit any extra explanations or commentary."
+    "When responding to code\u2011generation requests, provide the complete solution exactly in the format specified and omit any extra explanations or commentary.",
+    "Always provide a complete, self\u2011contained HTML file with all necessary inline CSS to fully implement the requested layout and styling."
   ],
-  "total_runs": 3,
-  "successful_runs": 3,
-  "last_run_at": "2026-08-13T11:42:21.312546+00:00"
+  "total_runs": 4,
+  "successful_runs": 4,
+  "last_run_at": "2026-08-13T12:49:36.665629+00:00"
 }
