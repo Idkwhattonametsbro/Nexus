@@ -78,6 +78,7 @@
         const MEMORY_KEY = 'nexus_chat_memory';
 
         const PROVIDER_DEFS = {
+            puter: { label: 'Puter · Claude Fable 5 (browser sign-in)', defaultModel: 'claude-fable-5', models: ['claude-fable-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-4.6', 'gpt-5.5', 'gpt-5.4', 'gemini-3.1-flash-lite', 'deepseek-r1'] },
             gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', defaultModel: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (free, vision)' },
             groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free, vision)' },
             github: { url: 'https://models.inference.ai.azure.com/chat/completions', defaultModel: 'gpt-4.1-mini', label: 'GitHub Models (free)' },
@@ -88,7 +89,7 @@
 
         function loadBrain() { try { return JSON.parse(localStorage.getItem(BRAIN_KEY)) || {} } catch (e) { return {} } }
         function saveBrain(c) { try { localStorage.setItem(BRAIN_KEY, JSON.stringify(c)) } catch (e) {} }
-        function brainConfigured() { const c = loadBrain(); return !!(c.key && c.key.trim()); }
+        function brainConfigured() { const c = loadBrain(); return (c.provider === 'puter') || !!(c.key && c.key.trim()); }
 
         function loadChatMemory() { try { return JSON.parse(localStorage.getItem(MEMORY_KEY)) || [] } catch (e) { return [] } }
         function addLesson(l) { const arr = loadChatMemory(); arr.push(l); try { localStorage.setItem(MEMORY_KEY, JSON.stringify(arr.slice(-10))) } catch (e) {} }
@@ -103,8 +104,84 @@
             throw new Error('Model did not return valid JSON.');
         }
 
+        /* ---- Puter.js bridge (browser-only, user-pays: Claude Fable 5 / Opus 5 / etc.) ---- */
+        function loadPuterScript() {
+            return new Promise((resolve, reject) => {
+                if (window.puter && window.puter.ai) return resolve();
+                const s = document.createElement('script');
+                s.src = 'https://js.puter.com/v2/';
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('Failed to load the Puter SDK (check connection).'));
+                document.head.appendChild(s);
+            });
+        }
+        async function ensurePuter() {
+            await loadPuterScript();
+            if (window.puter.auth && !window.puter.auth.isSignedIn()) {
+                await window.puter.auth.signIn(); // popup; must come from a user gesture
+            }
+        }
+        async function puterBrainCall(messages, opts = {}) {
+            await ensurePuter();
+            const cfg = loadBrain();
+            const def = PROVIDER_DEFS.puter;
+            const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
+            // Extract a possible image from the last multimodal user message
+            let imageUrl = null;
+            let msgs = messages;
+            const last = messages[messages.length - 1];
+            if (last && Array.isArray(last.content)) {
+                const img = last.content.find(p => p.type === 'image_url');
+                if (img) imageUrl = img.image_url.url;
+                const txt = last.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
+                msgs = [...messages.slice(0, -1), { role: 'user', content: txt }];
+            }
+            const chatArgs = [msgs, { model }];
+            if (imageUrl) chatArgs.splice(1, 0, imageUrl);
+            let resp;
+            try {
+                resp = await window.puter.ai.chat(...chatArgs);
+            } catch (err) {
+                const code = String((err && (err.code || err.error)) || '');
+                const msg = String((err && (err.message || err.error)) || err);
+                if (/insufficient_funds|usage-limited|402/i.test(code + ' ' + msg)) {
+                    throw new Error('Puter credit limit reached. Top up at puter.com or switch provider in BRAIN - the GitHub pipeline keeps working automatically.');
+                }
+                throw new Error('Puter error: ' + msg.slice(0, 120));
+            }
+            let text = '';
+            const content = resp && resp.message && resp.message.content;
+            if (Array.isArray(content)) text = content.map(p => (p && p.text) || '').join('');
+            else if (typeof content === 'string') text = content;
+            else if (resp && typeof resp.text === 'string') text = resp.text;
+            else text = String(resp || '');
+            return opts.jsonMode ? parseJson(text) : text;
+        }
+        async function puterStream(messages, opts = {}) {
+            /* Returns an async iterator of text chunks; also works in JSON mode
+               (caller accumulates and parses at the end). */
+            await ensurePuter();
+            const cfg = loadBrain();
+            const def = PROVIDER_DEFS.puter;
+            const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
+            let msgs = messages;
+            const last = messages[messages.length - 1];
+            if (last && Array.isArray(last.content)) {
+                const txt = last.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
+                msgs = [...messages.slice(0, -1), { role: 'user', content: txt }];
+            }
+            const resp = await window.puter.ai.chat(msgs, { model, stream: true });
+            let full = '';
+            for await (const part of resp) {
+                const chunk = (part && part.text) || '';
+                if (chunk) { full += chunk; if (opts.onToken) opts.onToken(chunk); }
+            }
+            return opts.jsonMode ? parseJson(full) : full;
+        }
+
         async function brainCall(messages, opts = {}) {
             const cfg = loadBrain();
+            if (cfg.provider === 'puter') return puterBrainCall(messages, opts);
             const provider = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'groq';
             const def = PROVIDER_DEFS[provider];
             const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
@@ -154,8 +231,10 @@
 
         const REVIEW_SYSTEM =
             'You are Nexus Review, a senior design engineer. Critique a generated artifact against its directive. ' +
-            'Return STRICT JSON: {"decision": "approve"|"fix", "issues": ["..."], "improved": {"filename": "...", "content": "..."}} ' +
-            'If decision is "fix", provide the COMPLETE improved standalone artifact in "improved". ' +
+            'Return STRICT JSON: {"decision": "approve"|"fix", "score": 1-10, "issues": ["..."], "improved": {"filename": "...", "content": "..."}} ' +
+            'Score the artifact honestly from 1 (broken) to 10 (production-quality, fully matches the directive). ' +
+            'Approve only if score >= 8 and every requested feature works. ' +
+            'If decision is "fix", provide the COMPLETE improved standalone artifact in "improved" with every issue resolved. ' +
             'If "approve", "improved" may be null. Never truncate code.';
 
         const LESSON_SYSTEM =
@@ -231,7 +310,7 @@
             messagesRef.current = messages;
 
             const pushMessage = useCallback((m) => setMessages(prev => [...prev, m]), []);
-            const updateMessage = useCallback((id, patch) => setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m)), []);
+            const updateMessage = useCallback((id, patch) => setMessages(prev => prev.map(m => m.id === id ? (typeof patch === 'function' ? patch(m) : { ...m, ...patch }) : m)), []);
 
             /* ---- boot ---- */
             useEffect(() => {
@@ -421,9 +500,15 @@
                         pushMessage({ id: uid(), kind: 'card', title: 'REVIEW ERROR', tone: 'error', lines: [String(e.message || e)], ts: stamp() });
                         return;
                     }
-                    if (rev.decision === 'approve') {
-                        updateMessage(artId, { review: { decision: 'approve', issues: [] } });
-                        pushMessage({ id: uid(), kind: 'card', title: 'REVIEW APPROVED', tone: 'ok', lines: ['Artifact passed the quality review.'], ts: stamp() });
+                    const score = Math.max(1, Math.min(10, Math.round(Number(rev.score) || (rev.decision === 'approve' ? 9 : 5))));
+                    if (rev.decision === 'approve' && score >= 8) {
+                        updateMessage(artId, { review: { decision: 'approve', issues: [], score } });
+                        pushMessage({ id: uid(), kind: 'card', title: 'REVIEW APPROVED · ' + score + '/10', tone: 'ok', lines: ['Artifact passed the quality review.'], ts: stamp() });
+                        return;
+                    }
+                    if (i === 2) {
+                        updateMessage(artId, { review: { decision: 'approve', issues: [], score } });
+                        pushMessage({ id: uid(), kind: 'card', title: 'REVIEW · ' + score + '/10 (MAX ITERATIONS)', tone: 'ok', lines: ['Reached 3 fix rounds. Delivering the best version.'], ts: stamp() });
                         return;
                     }
                     const issues = (rev.issues || []).slice(0, 5);
@@ -543,8 +628,26 @@
                 }
             };
 
+            /* Hybrid routing: chat brain (Puter / keyed provider) for conversation,
+               GitHub pipeline for heavy builds when it makes sense. */
+            const isHeavyBuild = (t) => {
+                const words = (t || '').trim().split(/\s+/).length;
+                return words > 60 || /repo|repository|project|docker|database|backend|full-stack|saas|multi-file|architecture/i.test(t);
+            };
+            const chatProvider = () => { const c = loadBrain(); return (c.provider && PROVIDER_DEFS[c.provider]) ? c.provider : 'groq'; };
+
             const agentTurn = async (userText, atts) => {
+                const usePuter = chatProvider() === 'puter';
+                const heavy = isHeavyBuild(userText);
                 if (!brainConfigured()) { await pipelineTurn(userText, atts); return; }
+                if (usePuter && heavy && remoteToken.trim()) {
+                    pushMessage({ id: uid(), kind: 'card', title: 'HEAVY BUILD → PIPELINE', tone: 'info', lines: ['This looks like a big multi-part project. Routing it to the GitHub pipeline (uses your secrets, commits artifacts, no browser credit spent).'], ts: stamp() });
+                    await pipelineTurn(userText, atts);
+                    return;
+                }
+                if (usePuter && heavy && !remoteToken.trim()) {
+                    pushMessage({ id: uid(), kind: 'card', title: 'HEAVY BUILD DETECTED', tone: 'warn', lines: ['This is a big build. Add a GitHub token in PIPELINE to run it on the free background pipeline, or continue here with Puter (spends your Puter credits).'], ts: stamp() });
+                }
                 setBusy(true);
                 const t0 = performance.now();
                 const thoughtId = uid();
@@ -567,11 +670,32 @@
                             ...images.map(a => ({ type: 'image_url', image_url: { url: a.dataUrl } })),
                         ];
                     }
-                    const out = await brainCall([
+                    const messagesPayload = [
                         { role: 'system', content: buildSystemPrompt() },
                         ...hist,
                         { role: 'user', content: finalContent },
-                    ], { jsonMode: true, temperature: 0.4 });
+                    ];
+                    let out;
+                    if (usePuter) {
+                        // Stream the reply token-by-token: a live "typing" bubble
+                        // that resolves into the final answer.
+                        const liveId = uid();
+                        pushMessage({ id: liveId, role: 'agent', text: '', streaming: true, ts: stamp() });
+                        let buf = '';
+                        out = await puterStream(messagesPayload, {
+                            jsonMode: true,
+                            onToken: (chunk) => {
+                                buf += chunk;
+                                const n = Math.min(3, 1 + Math.floor(buf.length / 400));
+                                updateMessage(liveId, { text: '▊'.repeat(n), streaming: true });
+                            },
+                        });
+                        const replyText = out && out.reply ? out.reply : (out && typeof out === 'string' ? out : 'Done.');
+                        setMessages(prev => prev.map(m => m.id === liveId ? { ...m, text: replyText, streaming: false } : m));
+                    } else {
+                        out = await brainCall(messagesPayload, { jsonMode: true, temperature: 0.4 });
+                        if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, ts: stamp() });
+                    }
                     const secs = ((performance.now() - t0) / 1000).toFixed(1);
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
                     setProviderTag(loadBrain().provider ? loadBrain().provider.toUpperCase() : '--');
@@ -873,7 +997,7 @@
                                         <div className="rounded-3xl border border-cream-300 bg-white/95 backdrop-blur shadow-lift p-3">
                                             <div className="flex items-center justify-between px-1.5 pb-2">
                                                 <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">MESSAGE NEXUS</span>
-                                                <span className="text-[8px] font-mono text-stone-400">{brainConfigured() ? 'FAST BRAIN' : 'BACKGROUND BRAIN · GITHUB SECRETS'}</span>
+                                                <span className="text-[8px] font-mono text-stone-400">{loadBrain().provider === 'puter' ? 'PUTER · CLAUDE FABLE 5' : (brainConfigured() ? 'KEYED BRAIN' : 'BACKGROUND BRAIN · GITHUB SECRETS')}</span>
                                             </div>
                                             {(attachments.length > 0) && (
                                                 <div className="flex flex-wrap gap-1.5 px-1 pb-2">
@@ -1025,31 +1149,51 @@
                             <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
                                 <div className="w-full max-w-[480px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
                                     <div className="flex items-center justify-between px-5 h-14 border-b border-cream-200">
-                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">FAST BRAIN (OPTIONAL)</span>
+                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">BRAIN / MODEL</span>
                                         <button onClick={() => setShowSettings(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
                                     <div className="p-5 space-y-4">
-                                        <div className="text-[10px] text-stone-400 leading-relaxed">By default Nexus thinks in the background through your GitHub secrets - nothing to enter here. Add a key here only if you want <b>instant</b> in-browser replies (no pipeline wait). Stored only in this browser.</div>
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">Pick the brain: <b>Puter</b> = Claude Fable 5 / Opus 5 / Sonnet 5 via free browser sign-in (best quality, your Puter account covers usage). Or use a key provider (Gemini free / Groq free / etc.). Heavy multi-part builds auto-route to the GitHub pipeline. Keys stay in this browser only.</div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">PROVIDER</div>
                                             <select value={brainCfg.provider || 'groq'} onChange={e => setBrainCfg({ ...brainCfg, provider: e.target.value, model: '' })} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
                                                 {Object.keys(PROVIDER_DEFS).map(k => <option key={k} value={k}>{PROVIDER_DEFS[k].label} · {PROVIDER_DEFS[k].defaultModel}</option>)}
                                             </select>
                                         </div>
-                                        <div>
-                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">API KEY</div>
-                                            <input type="password" value={brainCfg.key || ''} onChange={e => setBrainCfg({ ...brainCfg, key: e.target.value })} placeholder={brainCfg.provider === 'groq' ? 'gsk_...' : brainCfg.provider === 'openrouter' ? 'sk-or-...' : 'sk-...'} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
-                                        </div>
-                                        <div>
-                                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">MODEL (OPTIONAL - LEAVE BLANK FOR DEFAULT)</div>
-                                            <input type="text" value={brainCfg.model || ''} onChange={e => setBrainCfg({ ...brainCfg, model: e.target.value })} placeholder={PROVIDER_DEFS[brainCfg.provider || 'groq'].defaultModel} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
-                                        </div>
+                                        {brainCfg.provider === 'puter' ? (
+                                            <div>
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">PUTER ACCOUNT (FREE SIGN-IN, USER-PAYS)</div>
+                                                <button onClick={async () => {
+                                                    try { await ensurePuter(); setTestResult('SIGNED IN TO PUTER - READY'); }
+                                                    catch (e) { setTestResult('FAILED: ' + (e.message || e)); }
+                                                }} className="text-[10px] font-mono border border-cream-400 bg-cream-50 text-stone-600 hover:text-ember-600 hover:border-ember-300 px-4 py-2.5 rounded-xl tracking-wider transition-all w-full">SIGN IN WITH PUTER</button>
+                                                <div className="text-[9px] text-stone-400 mt-1.5 leading-relaxed">New accounts get starter credits. Your account pays for its own usage - the developer pays nothing. No API key needed.</div>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">API KEY</div>
+                                                <input type="password" value={brainCfg.key || ''} onChange={e => setBrainCfg({ ...brainCfg, key: e.target.value })} placeholder={brainCfg.provider === 'groq' ? 'gsk_...' : brainCfg.provider === 'openrouter' ? 'sk-or-...' : 'sk-...'} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                            </div>
+                                        )}
+                                        {brainCfg.provider === 'puter' ? (
+                                            <div>
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">CLAUDE / MODEL</div>
+                                                <select value={brainCfg.model || 'claude-fable-5'} onChange={e => setBrainCfg({ ...brainCfg, model: e.target.value })} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
+                                                    {(PROVIDER_DEFS.puter.models || []).map(m => <option key={m} value={m}>{m}</option>)}
+                                                </select>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">MODEL (OPTIONAL - LEAVE BLANK FOR DEFAULT)</div>
+                                                <input type="text" value={brainCfg.model || ''} onChange={e => setBrainCfg({ ...brainCfg, model: e.target.value })} placeholder={PROVIDER_DEFS[brainCfg.provider || 'groq'].defaultModel} className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />
+                                            </div>
+                                        )}
                                         <div className="flex items-center gap-3 flex-wrap">
                                             <button onClick={saveBrainCfg} className="text-[10px] font-mono btn-primary text-white px-4 py-2.5 rounded-xl tracking-wider transition-all shadow-soft">SAVE & CLOSE</button>
                                             <button onClick={testBrain} className="text-[10px] font-mono border border-cream-400 text-stone-600 hover:text-ember-600 px-4 py-2.5 rounded-xl tracking-wider transition-all">TEST CONNECTION</button>
                                         </div>
                                         {testResult && <div className={'text-[10px] font-mono px-3 py-2 rounded-xl border ' + (testResult.startsWith('CONNECTION OK') ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : testResult.startsWith('FAILED') ? 'border-red-200 bg-red-50 text-red-600' : 'border-cream-300 bg-cream-50 text-stone-600')}>{testResult}</div>}
-                                        <div className="text-[9px] font-mono text-stone-400 pt-1">TIP: Groq keys are free at console.groq.com. OpenRouter free models need no credit.</div>
+                                        <div className="text-[9px] font-mono text-stone-400 pt-1">TIP: Puter = no API key at all - just sign in. Gemini keys are free at aistudio.google.com. GitHub Models works with any GitHub token.</div>
                                     </div>
                                 </div>
                             </div>
@@ -1091,6 +1235,18 @@
                     </div>
                 </div>
             );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+ root.render(<App />);
+    </script>
+</body>
+</html>
+
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));

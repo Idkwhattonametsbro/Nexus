@@ -181,28 +181,43 @@ No paid API credit required. The router falls back automatically:
 The workspace is a **conversational agent**. The chat is the product; GitHub is
 background plumbing that holds the secrets.
 
-- **Background brain (default)**: Nexus thinks through the GitHub Actions
-  pipeline using your repository secrets - API keys never enter the chat or
-  the browser. You only paste a GitHub token once (PIPELINE modal, Actions
-  read/write) so the chat can dispatch runs. Results stream back into the
-  chat with the pipeline's own reasoning trace.
-- **Fast brain (optional)**: add an LLM key in BRAIN for instant in-browser
-  replies (Groq / OpenRouter / DeepSeek), stored in localStorage only.
+- **Hybrid brain (default best)**: the chat runs in your browser and can use
+  **Puter** - free browser sign-in that grants access to **Claude Fable 5,
+  Claude Opus 5, Claude Sonnet 5, Sonnet 4.6, GPT-5.5** and 400+ models
+  (user-pays model: your Puter account covers its own usage, no API key).
+  Replies stream token-by-token with a live typing indicator.
+- **Background brain (fallback + heavy builds)**: Nexus thinks through the
+  GitHub Actions pipeline using your repository secrets. API keys never enter
+  the chat or the browser. Heavy multi-part builds (60+ words, or repo/project/
+  database/docker keywords) auto-route to the pipeline so your Puter credits
+  are preserved - results stream back into the chat.
+- **Keyed brains (optional)**: add a key in BRAIN for instant in-browser
+  replies (Gemini 2.5 Flash free / Groq free / GitHub Models / Cerebras /
+  OpenRouter / DeepSeek), stored in localStorage only.
 - **Conversational**: greetings and questions get real replies; ambiguous
-  build requests trigger clarifying questions with tap-to-answer options.
+  build requests trigger clarifying questions with tap-to-answer options that
+  auto-send your choice.
 - **Reasoning transparency**: every turn shows a "Thought for Xs" pill that
   expands into the full reasoning trace (real pipeline log lines in background
   mode).
-- **Build loop**: generate -> review (second model critiques) -> fix -> iterate
-  (up to 3 rounds) -> deliver. Every artifact is a file card with syntax
-  highlighting, iteration count, inline PREVIEW, DOWNLOAD, and optional
-  SAVE to the GitHub repo (background).
+- **Build loop with scoring**: generate -> review (second model scores 1-10,
+  iterates until >= 8, max 3 fix rounds) -> deliver. Every artifact is a file
+  card with syntax highlighting, iteration count, inline PREVIEW, DOWNLOAD,
+  and optional SAVE to the GitHub repo.
 - **Session memory**: a lesson is extracted after each approved build and
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
-Zero browser keys required: the chat dispatches `chat`-mode pipeline runs that
-use the secrets you already configured in GitHub.
+### Puter credits - the honest truth
+
+Puter markets "free unlimited", but its user-pays model means your **account**
+covers usage: new accounts get starter credits, and heavy use eventually hits
+an undocumented limit (community reports: ~100 requests/day). Credits do not
+expire after a day; they deplete with usage. When they run out you can top up,
+create a fresh account, or rely on the automatic fallbacks - the GitHub
+pipeline (Gemini/Groq secrets) and keyed brains keep Nexus working no matter
+what. That is exactly why the hybrid exists: Puter for the best quality,
+GitHub pipeline as the resilient workhorse.
 
 ## Design Constraints
 
