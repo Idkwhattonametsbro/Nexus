@@ -78,7 +78,10 @@
         const MEMORY_KEY = 'nexus_chat_memory';
 
         const PROVIDER_DEFS = {
-            groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free)' },
+            gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', defaultModel: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (free, vision)' },
+            groq: { url: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'openai/gpt-oss-120b', label: 'Groq (free, vision)' },
+            github: { url: 'https://models.inference.ai.azure.com/chat/completions', defaultModel: 'gpt-4.1-mini', label: 'GitHub Models (free)' },
+            cerebras: { url: 'https://api.cerebras.ai/v1/chat/completions', defaultModel: 'llama-3.3-70b', label: 'Cerebras (free)' },
             openrouter: { url: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', label: 'OpenRouter' },
             deepseek: { url: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-v4-flash', label: 'DeepSeek' },
         };
@@ -140,6 +143,7 @@
                 '\n- Put 3-6 short reasoning bullets in "reasoning" before acting.' +
                 '\n- When building, produce ONE complete standalone artifact in "artifact". Never truncate code. No external dependencies unless requested.' +
                 '\n- Default design language (unless the user asks otherwise): light premium - creamy white background, soft warm borders, rounded corners, orange accents (#F97316), clean Inter typography.' +
+                '\n- GAMES and complex apps must be COMPLETE and playable: full game loop, input handling (keyboard/mouse/touch), win/lose/score states, a visible controls legend, and real polish (animations, sound via WebAudio). Never ship stubs, TODOs, or placeholder logic. If output length is a constraint, prioritize a fully working core over extras.' +
                 '\n- After producing an artifact set status "artifact". A review pass will critique it; accept the feedback.' +
                 '\n- Never invent credentials, links, or claim actions you did not perform.' +
                 '\n- Keep replies under ~120 words unless writing code.' +
@@ -219,6 +223,8 @@
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
             const [openFile, setOpenFile] = useState(null);
+            const [attachments, setAttachments] = useState([]);
+            const fileInputRef = useRef(null);
             const editorRef = useRef(null);
             const chatScrollRef = useRef(null);
             const messagesRef = useRef(messages);
@@ -303,6 +309,73 @@
                 a.download = filename;
                 document.body.appendChild(a); a.click();
                 setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+            };
+
+            /* ---- file / image attachments ---- */
+            const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = () => reject(new Error('read failed'));
+                r.readAsDataURL(file);
+            });
+            const downscaleImage = (dataUrl, max = 1024) => new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    const scale = Math.min(1, max / Math.max(img.width, img.height));
+                    const c = document.createElement('canvas');
+                    c.width = Math.max(1, Math.round(img.width * scale));
+                    c.height = Math.max(1, Math.round(img.height * scale));
+                    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                    resolve(c.toDataURL('image/jpeg', 0.82));
+                };
+                img.onerror = () => resolve(dataUrl);
+                img.src = dataUrl;
+            });
+            const handleAttach = async (files) => {
+                const added = [];
+                for (const f of Array.from(files || [])) {
+                    const base = { id: uid(), name: f.name };
+                    if (f.type && f.type.startsWith('image/')) {
+                        try {
+                            const raw = await fileToDataUrl(f);
+                            const dataUrl = await downscaleImage(raw);
+                            added.push({ ...base, kind: 'image', dataUrl });
+                        } catch (e) { added.push({ ...base, kind: 'file' }); }
+                    } else if (f.size < 200 * 1024) {
+                        try { added.push({ ...base, kind: 'text', text: await f.text() }); }
+                        catch (e) { added.push({ ...base, kind: 'file' }); }
+                    } else {
+                        added.push({ ...base, kind: 'file' });
+                    }
+                }
+                setAttachments(prev => [...prev, ...added].slice(0, 6));
+            };
+            const uploadImageToRepo = async (dataUrl, name) => {
+                const token = remoteToken.trim();
+                if (!token) throw new Error('No GitHub token for image upload');
+                const path = 'chat-uploads/' + Date.now() + '_' + name.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const base64 = dataUrl.split(',')[1];
+                const res = await fetch(API + '/contents/' + path, {
+                    method: 'PUT',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: 'nexus: chat upload ' + name, content: base64 }),
+                });
+                if (!res.ok) throw new Error('Upload HTTP ' + res.status);
+                return 'https://raw.githubusercontent.com/' + REPO + '/main/' + path;
+            };
+            const buildAttachmentPrompt = async (userText, atts) => {
+                let prompt = userText;
+                const textParts = [], imageUrls = [];
+                for (const a of atts || []) {
+                    if (a.kind === 'text') textParts.push('[Attached file: ' + a.name + ']\n```\n' + a.text.slice(0, 8000) + '\n```');
+                    else if (a.kind === 'image') {
+                        try { imageUrls.push(await uploadImageToRepo(a.dataUrl, a.name)); }
+                        catch (e) { pushMessage({ id: uid(), kind: 'card', title: 'IMAGE UPLOAD FAILED', tone: 'error', lines: ['Could not upload ' + a.name + ' to the repo: ' + (e.message || e), 'Your GitHub token needs Contents read/write, or enable FAST BRAIN for in-browser images.'], ts: stamp() }); }
+                    }
+                }
+                if (textParts.length) prompt += '\n\n' + textParts.join('\n\n');
+                if (imageUrls.length) prompt += '\n\n' + imageUrls.map(u => '[IMAGE_URL: ' + u + ']').join('\n');
+                return prompt;
             };
 
             const exportChat = () => {
@@ -401,7 +474,8 @@
                 return body.trim();
             };
 
-            const pipelineTurn = async (userText) => {
+            const pipelineTurn = async (userText, atts) => {
+                const prompt = await buildAttachmentPrompt(userText, atts);
                 const token = remoteToken.trim();
                 if (!token) {
                     pushMessage({ id: uid(), kind: 'card', title: 'ONE-TIME SETUP NEEDED', tone: 'warn', lines: ['Nexus thinks through the background pipeline so your API keys stay in GitHub secrets.', 'Open PIPELINE and paste your GitHub token once (fine-grained, Actions read/write). It is stored only in this browser.', 'No API keys are ever entered in the chat.'], ts: stamp() });
@@ -417,7 +491,7 @@
                     const res = await fetch(API + '/actions/workflows/run_agent.yml/dispatches', {
                         method: 'POST',
                         headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ref: 'main', inputs: { prompt: userText, mode } }),
+                        body: JSON.stringify({ ref: 'main', inputs: { prompt, mode: 'chat' } }),
                     });
                     if (!res.ok) throw new Error('Dispatch HTTP ' + res.status);
                     let run = null;
@@ -469,8 +543,8 @@
                 }
             };
 
-            const agentTurn = async (userText) => {
-                if (!brainConfigured()) { await pipelineTurn(userText); return; }
+            const agentTurn = async (userText, atts) => {
+                if (!brainConfigured()) { await pipelineTurn(userText, atts); return; }
                 setBusy(true);
                 const t0 = performance.now();
                 const thoughtId = uid();
@@ -480,10 +554,23 @@
                         .filter(m => m.role)
                         .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }))
                         .slice(-12);
+                    // Build the final user message: multimodal when images are attached
+                    let finalContent = userText;
+                    const images = (atts || []).filter(a => a.kind === 'image');
+                    const textAtts = (atts || []).filter(a => a.kind === 'text');
+                    if (textAtts.length) {
+                        finalContent += '\n\n' + textAtts.map(a => '[Attached file: ' + a.name + ']\n```\n' + a.text.slice(0, 8000) + '\n```').join('\n\n');
+                    }
+                    if (images.length) {
+                        finalContent = [
+                            { type: 'text', text: finalContent || '(image attached)' },
+                            ...images.map(a => ({ type: 'image_url', image_url: { url: a.dataUrl } })),
+                        ];
+                    }
                     const out = await brainCall([
                         { role: 'system', content: buildSystemPrompt() },
                         ...hist,
-                        { role: 'user', content: userText },
+                        { role: 'user', content: finalContent },
                     ], { jsonMode: true, temperature: 0.4 });
                     const secs = ((performance.now() - t0) / 1000).toFixed(1);
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
@@ -510,11 +597,22 @@
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                if (!chatInput.trim() || busy) return;
+                if (busy) return;
                 const text = chatInput.trim();
+                if (!text && !attachments.length) return;
+                const atts = attachments;
                 setChatInput('');
-                pushMessage({ id: uid(), role: 'user', text, ts: stamp() });
-                agentTurn(text);
+                setAttachments([]);
+                pushMessage({ id: uid(), role: 'user', text: text || '(attachment only)', attachments: atts, ts: stamp() });
+                agentTurn(text, atts);
+            };
+
+            // Tap-to-answer: the selected option is sent immediately so Nexus
+            // sees the answer in context and continues the thread.
+            const handleQuickAnswer = (q) => {
+                if (busy) return;
+                pushMessage({ id: uid(), role: 'user', text: q, ts: stamp() });
+                agentTurn(q);
             };
 
             /* ---- settings ---- */
@@ -588,12 +686,15 @@
                 }
                 if (m.kind === 'questions') {
                     return (
-                        <div className="animate-fadeup flex flex-wrap gap-2">
-                            {(m.items || []).map((q, i) => (
-                                <button key={i} onClick={() => { setChatInput(q); }} className="text-[11px] font-mono border border-ember-300 bg-ember-50 text-ember-700 hover:bg-ember-100 px-3 py-2 rounded-full transition-all">
-                                    {q}
-                                </button>
-                            ))}
+                        <div className="animate-fadeup">
+                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">TAP AN ANSWER - IT SENDS AUTOMATICALLY</div>
+                            <div className="flex flex-wrap gap-2">
+                                {(m.items || []).map((q, i) => (
+                                    <button key={i} onClick={() => handleQuickAnswer(q)} className="text-[11px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3.5 py-2 rounded-full transition-all shadow-soft">
+                                        {q}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     );
                 }
@@ -637,7 +738,16 @@
                         <div className="flex justify-end animate-fadeup">
                             <div className="max-w-[85%] bg-white border border-cream-300 rounded-2xl rounded-br-md px-4 py-3 shadow-soft">
                                 <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">YOU · {m.ts}</div>
-                                <div className="text-[13px] leading-relaxed text-stone-700">{m.text}</div>
+                                {(m.attachments || []).length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 mb-2">
+                                        {(m.attachments || []).map(a => (
+                                            a.kind === 'image'
+                                                ? <img key={a.id} src={a.dataUrl} alt={a.name} className="h-16 rounded-lg border border-cream-300 object-cover" />
+                                                : <span key={a.id} className="inline-flex items-center gap-1 text-[9px] font-mono border border-cream-300 bg-cream-50 rounded-md px-2 py-1 text-stone-500"><svg width="9" height="9" viewBox="0 0 24 24" fill="none"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>{a.name}</span>
+                                        ))}
+                                    </div>
+                                )}
+                                {m.text !== '(attachment only)' && <div className="text-[13px] leading-relaxed text-stone-700">{m.text}</div>}
                             </div>
                         </div>
                     );
@@ -765,6 +875,17 @@
                                                 <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">MESSAGE NEXUS</span>
                                                 <span className="text-[8px] font-mono text-stone-400">{brainConfigured() ? 'FAST BRAIN' : 'BACKGROUND BRAIN · GITHUB SECRETS'}</span>
                                             </div>
+                                            {(attachments.length > 0) && (
+                                                <div className="flex flex-wrap gap-1.5 px-1 pb-2">
+                                                    {attachments.map(a => (
+                                                        <span key={a.id} className="inline-flex items-center gap-1.5 text-[9px] font-mono border border-cream-300 bg-cream-50 rounded-lg px-2 py-1 text-stone-500">
+                                                            {a.kind === 'image' ? <img src={a.dataUrl} alt="" className="h-5 w-5 rounded object-cover" /> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className="text-stone-400"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"/></svg>}
+                                                            {a.name}
+                                                            <button type="button" onClick={() => setAttachments(prev => prev.filter(x => x.id !== a.id))} className="text-stone-400 hover:text-ember-600">×</button>
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             <form onSubmit={handleSubmit} className="relative">
                                                 <input
                                                     type="text"
@@ -773,12 +894,22 @@
                                                     onFocus={() => { const c = document.getElementById('nexus-composer'); if (c) setTimeout(() => c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120); }}
                                                     placeholder="Ask Nexus to build something, or just chat..."
                                                     disabled={busy}
-                                                    className={'w-full bg-cream-50 border border-cream-400 text-[14px] rounded-2xl px-4 py-4 pr-14 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ' + (busy ? 'glow-active border-ember-300' : '')}
+                                                    className={'w-full bg-cream-50 border border-cream-400 text-[14px] rounded-2xl pl-11 pr-14 py-4 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ' + (busy ? 'glow-active border-ember-300' : '')}
                                                 />
                                                 <button
+                                                    type="button"
+                                                    onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                                                    disabled={busy}
+                                                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-stone-400 hover:text-ember-600 hover:bg-cream-100 transition-all disabled:opacity-40"
+                                                    title="Attach file or image"
+                                                >
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M21.4 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                                </button>
+                                                <input ref={fileInputRef} type="file" multiple accept="image/*,.txt,.md,.json,.js,.py,.html,.css,.csv,.log" className="hidden" onChange={e => { handleAttach(e.target.files); e.target.value = ''; }} />
+                                                <button
                                                     type="submit"
-                                                    disabled={busy || !chatInput.trim()}
-                                                    className={'absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl transition-all ' + (busy || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft')}
+                                                    disabled={busy || (!chatInput.trim() && !attachments.length)}
+                                                    className={'absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl transition-all ' + (busy || (!chatInput.trim() && !attachments.length) ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft')}
                                                 >
                                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                                 </button>

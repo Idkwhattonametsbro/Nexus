@@ -49,9 +49,20 @@ Current-generation models, verified August 2026:
 
 | Task type | Primary provider | Fallback chain |
 | --- | --- | --- |
-| `code` | DeepSeek (`deepseek-v4-pro`) | OpenRouter (Claude Sonnet 4.6) -> OpenAI (gpt-4o-mini) -> Groq (GPT-OSS-120B) |
-| `fast` (reflection/review) | Groq (`openai/gpt-oss-120b`) | DeepSeek -> OpenRouter -> OpenAI |
-| `general` | OpenRouter (`anthropic/claude-sonnet-4.6`) | OpenAI -> DeepSeek -> Groq |
+| `code` | DeepSeek (`deepseek-v4-pro`) | Gemini 2.5 Flash -> OpenRouter (Claude Sonnet 4.6) -> OpenAI -> Groq (GPT-OSS-120B) -> Cerebras -> GitHub Models |
+| `fast` (reflection/review) | Groq (`openai/gpt-oss-120b`) | Gemini -> Cerebras -> GitHub Models (gpt-4.1-mini) -> DeepSeek -> OpenRouter -> OpenAI |
+| `general` | Gemini (`gemini-2.5-flash`) | OpenRouter -> GitHub Models -> OpenAI -> DeepSeek -> Groq -> Cerebras |
+
+**Zero-cost frontier stack (no credit card):**
+- `GEMINI_API_KEY` - Google AI Studio free tier: gemini-2.5-flash, ~250 req/day, vision-capable. Get it at aistudio.google.com.
+- `GITHUB_MODELS_TOKEN` - any GitHub PAT: free GPT-4.1-mini / o4-mini / gpt-5 at models.inference.ai.azure.com (rate-limited; best for chat, review, and smaller builds).
+- `CEREBRAS_API_KEY` - cloud.cerebras.ai free tier: llama-3.3-70b.
+- `GROQ_API_KEY` - free tier: gpt-oss-120b (vision) / llama-3.3-70b.
+
+**Vision / image input:** prompts containing `[IMAGE_URL: ...]` (or data URIs) are
+routed only to vision-capable providers (Gemini, Groq, OpenRouter, OpenAI,
+GitHub Models) and sent as multimodal content. Non-vision providers (DeepSeek,
+Cerebras) are skipped for image tasks with a clear error if none are available.
 
 - The OpenRouter key gives access to Claude Sonnet 4.6 - the current agentic-coding flagship.
 - Every provider is attempted up to 3 times with exponential backoff on 429 / 5xx / network errors.
@@ -88,10 +99,13 @@ git push -u origin main
 
 | Secret | Used for | Get it at |
 | --- | --- | --- |
-| `DEEPSEEK_API_KEY` | Code generation (primary) | platform.deepseek.com |
-| `OPENROUTER_API_KEY` | Claude-level general routing | openrouter.ai/keys |
-| `GROQ_API_KEY` | Fast tasks (reflection + review) | console.groq.com/keys |
-| `OPENAI_API_KEY` | Extra fallback route | platform.openai.com |
+| `GEMINI_API_KEY` | **Free frontier tier** - gemini-2.5-flash, vision | aistudio.google.com |
+| `GROQ_API_KEY` | **Free** - gpt-oss-120b, reflection + review | console.groq.com/keys |
+| `CEREBRAS_API_KEY` | **Free** - llama-3.3-70b | cloud.cerebras.ai |
+| `GITHUB_MODELS_TOKEN` | **Free** - GPT-4.1-mini / o4-mini via GitHub PAT | github.com/settings/tokens |
+| `DEEPSEEK_API_KEY` | Code generation (primary, paid) | platform.deepseek.com |
+| `OPENROUTER_API_KEY` | Claude-level general routing (paid) | openrouter.ai/keys |
+| `OPENAI_API_KEY` | Extra fallback route (paid) | platform.openai.com |
 | `TAVILY_API_KEY` | Live web research | app.tavily.com |
 
 4. Run the pipeline: **Actions -> Nexus Autonomous Agent Pipeline -> Run workflow**, enter an architecture directive and mode, then run.

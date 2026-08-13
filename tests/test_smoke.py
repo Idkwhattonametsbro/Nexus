@@ -24,7 +24,8 @@ from agent import NexusAgent
 
 
 def clear_env():
-    for k in ("DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY"):
+    for k in ("DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY",
+              "TAVILY_API_KEY", "GEMINI_API_KEY", "CEREBRAS_API_KEY", "GITHUB_MODELS_TOKEN"):
         os.environ.pop(k, None)
 
 
@@ -95,6 +96,46 @@ class TestRouting(unittest.TestCase):
             out = router.ModelRouter.call_llm("hi", task_type="fast")
         self.assertEqual(out, "ok")
         self.assertEqual(calls["n"], 2)
+
+    def test_gemini_general_route(self):
+        os.environ["GEMINI_API_KEY"] = "gem-fake"
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        r = router.ModelRouter.route_request("analyze this problem", "general")
+        self.assertEqual(r["provider"], "Google")
+        self.assertEqual(r["model"], "gemini-2.5-flash")
+
+    def test_github_models_fast_route(self):
+        os.environ["GITHUB_MODELS_TOKEN"] = "ghm-fake"
+        r = router.ModelRouter.route_request("summarize", "fast")
+        self.assertEqual(r["provider"], "GitHubModels")
+        self.assertEqual(r["model"], "gpt-4.1-mini")
+
+    def test_cerebras_route(self):
+        os.environ["CEREBRAS_API_KEY"] = "cb-fake"
+        r = router.ModelRouter.route_request("summarize", "fast")
+        self.assertEqual(r["provider"], "Cerebras")
+
+    def test_vision_requires_vision_provider(self):
+        # Only DeepSeek (non-vision) configured -> image input must raise clearly
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        with self.assertRaises(RuntimeError) as ctx:
+            router.ModelRouter.call_llm("describe [IMAGE_URL:https://example.com/x.png]", task_type="code")
+        self.assertIn("vision-capable", str(ctx.exception))
+
+    def test_multimodal_payload_with_image(self):
+        os.environ["GEMINI_API_KEY"] = "gem-fake"
+        png = b"\x89PNG\r\n\x1a\n" + b"fakepng"
+        with mock.patch("router.requests.get", return_value=mock.Mock(status_code=200, headers={"Content-Type": "image/png"}, content=png)), \
+             mock.patch("router.requests.post") as post:
+            post.return_value.status_code = 200
+            post.return_value.json.return_value = {"choices": [{"message": {"content": "it is a png"}}]}
+            out = router.ModelRouter.call_llm("look at this [IMAGE_URL:https://example.com/a.png]", task_type="general")
+        self.assertEqual(out, "it is a png")
+        payload = post.call_args.kwargs["json"]
+        content = payload["messages"][1]["content"]
+        self.assertIsInstance(content, list)
+        self.assertTrue(any(p.get("type") == "image_url" for p in content))
+        self.assertTrue(any(p.get("type") == "text" and "look at this" in p.get("text", "") for p in content))
 
     def test_non_retryable_fails_fast(self):
         os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
