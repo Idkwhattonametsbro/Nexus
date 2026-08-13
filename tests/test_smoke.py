@@ -178,7 +178,7 @@ class TestAgentFlow(unittest.TestCase):
         self.assertEqual(manifest["provider"], "unknown")  # mocked, no real route
         self.assertIn("app_", manifest["artifacts"][0])
 
-        with open(os.path.join(REPO_ROOT, "config", "lessons_learned.json"), "r", encoding="utf-8") as f:
+        with open(reflection.LESSONS_FILE, "r", encoding="utf-8") as f:
             mem = json.load(f)
         self.assertGreaterEqual(mem["total_runs"], 1)
 
