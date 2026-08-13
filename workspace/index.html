@@ -84,7 +84,7 @@
         function saveChats(chats) {
             try {
                 const slim = chats.map(c => ({
-                    id: c.id, title: c.title, created: c.created,
+                    id: c.id, title: c.title, created: c.created, memory: c.memory || {},
                     messages: (c.messages || []).map(m => {
                         const s = { id: m.id, role: m.role, kind: m.kind, ts: m.ts, text: m.text && m.text.slice(0, 20000) };
                         if (m.kind === 'thought') s.lines = (m.lines || []).slice(0, 8);
@@ -341,28 +341,128 @@
             throw new Error('All brains failed: ' + errors.join(' | '));
         }
 
-        function buildSystemPrompt() {
+
+        /* ================= REAL TOOLS (agent can call these) ================= */
+        const TOOL_DEFS = [
+            { name: 'web_search', desc: 'Search the web for current information. Returns titles and snippets.', args: { query: 'string' } },
+            { name: 'read_repo_file', desc: 'Read a file from the Nexus GitHub repository (public).', args: { path: 'string' } },
+            { name: 'list_repo', desc: 'List files in the Nexus repository.', args: {} },
+            { name: 'save_to_repo', desc: 'Save a file to the Nexus repository. Needs the GitHub token from the PIPELINE modal.', args: { path: 'string', content: 'string' } },
+            { name: 'fetch_url', desc: 'Fetch a URL and return its text content.', args: { url: 'string' } },
+            { name: 'test_html', desc: 'Sanity-test HTML/JS code (parse + syntax + external deps). Returns PASS or FAIL with details.', args: { code: 'string' } },
+        ];
+        function toolsDescription() {
+            return TOOL_DEFS.map(t => '- ' + t.name + '(' + Object.keys(t.args).map(k => k + ': ' + t.args[k]).join(', ') + ') - ' + t.desc).join('\n');
+        }
+        function ddgExtract(html) {
+            const out = [];
+            const re = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
+            let m;
+            while ((m = re.exec(html)) && out.length < 5) {
+                const title = m[2].replace(/<[^>]+>/g, '').trim();
+                const snip = (m[3] || '').replace(/<[^>]+>/g, '').trim();
+                out.push('- ' + title + (snip ? ': ' + snip : ''));
+            }
+            return out;
+        }
+        function testHtml(code) {
+            const errors = [];
+            try {
+                const doc = new DOMParser().parseFromString(String(code), 'text/html');
+                if (doc.querySelector('parsererror')) errors.push('HTML parse error (unclosed/malformed tags)');
+            } catch (e) { errors.push('HTML parse error: ' + e.message); }
+            const scripts = Array.from(String(code).matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi));
+            scripts.forEach((m, i) => { try { new Function(m[1]); } catch (e) { errors.push('JS syntax error in script #' + (i + 1) + ': ' + e.message); } });
+            const externals = Array.from(String(code).matchAll(/(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/gi)).map(m => m[1]).filter(u => !/fonts\.googleapis|cdn\.tailwindcss/.test(u));
+            if (externals.length) errors.push('External dependency: ' + externals.slice(0, 3).join(', '));
+            return errors.length ? 'FAIL:\n- ' + errors.join('\n- ') : 'PASS';
+        }
+        async function runTool(name, args, ctx) {
+            const a = args || {};
+            if (name === 'web_search') {
+                try {
+                    if (window.puter && window.puter.net && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn()) {
+                        const r = await window.puter.net.fetch('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(a.query || ''));
+                        const text = await r.text();
+                        const hits = ddgExtract(text);
+                        if (hits.length) return hits.join('\n');
+                    }
+                } catch (e) {}
+                try {
+                    const r = await fetch('https://api.duckduckgo.com/?q=' + encodeURIComponent(a.query || '') + '&format=json&no_html=1');
+                    if (r.ok) { const d = await r.json(); const ans = d.AbstractText || ''; const rel = (d.RelatedTopics || []).filter(t => t && t.Text).slice(0, 3).map(t => '- ' + t.Text).join('\n'); if (ans || rel) return (ans ? 'Abstract: ' + ans + '\n' : '') + rel; }
+                } catch (e) {}
+                return '[web_search unavailable: sign in to Puter (CORS-free search) or use PIPELINE mode with the TAVILY secret]';
+            }
+            if (name === 'read_repo_file') {
+                const r = await fetch('https://raw.githubusercontent.com/' + REPO + '/main/' + (a.path || ''), { cache: 'no-store' });
+                if (!r.ok) return '[read failed: HTTP ' + r.status + ']';
+                const txt = await r.text();
+                return txt.slice(0, 6000) + (txt.length > 6000 ? '\n...[truncated]' : '');
+            }
+            if (name === 'list_repo') {
+                const r = await fetch(API + '/git/trees/main?recursive=1', { cache: 'no-store' });
+                if (!r.ok) return '[list failed: HTTP ' + r.status + ']';
+                const d = await r.json();
+                return (d.tree || []).filter(t => t.type === 'blob').map(t => t.path + ' (' + t.size + 'b)').join('\n').slice(0, 4000);
+            }
+            if (name === 'save_to_repo') {
+                const token = ctx.remoteToken;
+                if (!token) return '[save_to_repo needs the GitHub token from the PIPELINE modal]';
+                const path = (a.path || '').replace(/^\/+/, '');
+                let sha = null;
+                try { const g = await fetch(API + '/contents/' + path, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' } }); if (g.ok) sha = (await g.json()).sha; } catch (e) {}
+                const res = await fetch(API + '/contents/' + path, { method: 'PUT', headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'nexus: tool save ' + path, content: btoa(unescape(encodeURIComponent(a.content || ''))), sha }) });
+                if (!res.ok) return '[save failed: HTTP ' + res.status + ']';
+                return 'Saved ' + path + ' -> https://github.com/' + REPO + '/blob/main/' + path;
+            }
+            if (name === 'fetch_url') {
+                try {
+                    if (window.puter && window.puter.net && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn()) {
+                        const r = await window.puter.net.fetch(a.url);
+                        const t = await r.text();
+                        return t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+                    }
+                } catch (e) {}
+                const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(a.url || ''));
+                if (!r.ok) return '[fetch failed: HTTP ' + r.status + ']';
+                const t = await r.text();
+                return t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+            }
+            if (name === 'test_html') return testHtml(a.code || '');
+            return '[unknown tool: ' + name + ']';
+        }
+
+        function buildSystemPrompt(projectMemory) {
             const mem = loadChatMemory();
             const memoryBlock = mem.length
                 ? '\n\n[Learned rules from prior sessions]\n' + mem.map(l => '- ' + l).join('\n')
                 : '';
+            const pm = projectMemory || {};
+            const proj = (pm.goal || (pm.files && pm.files.length) || (pm.next && pm.next.length))
+                ? '\n\n[Project context - this conversation]\n' +
+                  (pm.goal ? 'Goal: ' + pm.goal + '\n' : '') +
+                  (pm.files && pm.files.length ? 'Files built: ' + pm.files.join(', ') + '\n' : '') +
+                  (pm.next && pm.next.length ? 'Next steps: ' + pm.next.join(' | ') + '\n' : '')
+                : '';
             return (
-                'You are Nexus, an autonomous software engineering agent embedded in a chat workspace. ' +
-                'You build complete, polished single-file web apps (all HTML/CSS/JS inline), tools, dashboards, and technical analyses. ' +
+                'You are Nexus, an autonomous software engineering AGENT embedded in a chat workspace. You act like a senior engineer: you use tools, plan complex work, execute in phases, verify your output, and never refuse a build because of external limits.' +
+                '\n\nTOOLS AVAILABLE (use them when they help):\n' + toolsDescription() +
+                '\nWhen a task needs current info, repo access, or verification, call tools via "tool_calls": [{"tool": "name", "args": {...}}]. You will receive the results and continue. You may call tools in multiple rounds.' +
                 '\n\nBEHAVIOR' +
-                '\n- Be concise but warm. Explain what you will build before building it.' +
-                '\n- If a request is ambiguous or too large, do NOT guess: set status "clarify" and give 2-4 concrete questions.' +
+                '\n- Be concise, warm, and direct. Explain what you will do before doing it.' +
+                '\n- NEVER refuse a build because of external limitations (API keys, platform rules, scale). Instead: decompose the request, deliver everything that IS possible now, and state precisely what credential/step is needed for the rest.' +
+                '\n- Separate the user\'s goal (e.g. "millions of views") from the deliverable (the system). Acknowledge the goal honestly, then build what actually helps.' +
+                '\n- For large or multi-part requests, return status "plan" with "plan": [{"phase": "1", "title": "...", "detail": "..."}]. The user can approve phases. Do not refuse - plan.' +
                 '\n- Put 3-6 short reasoning bullets in "reasoning" before acting.' +
-                '\n- When building, produce ONE complete standalone artifact in "artifact". Never truncate code. No external dependencies unless requested.' +
-                '\n- Default design language (unless the user asks otherwise): light premium - creamy white background, soft warm borders, rounded corners, orange accents (#F97316), clean Inter typography.' +
-                '\n- GAMES and complex apps must be COMPLETE and playable: full game loop, input handling (keyboard/mouse/touch), win/lose/score states, a visible controls legend, and real polish (animations, sound via WebAudio). Never ship stubs, TODOs, or placeholder logic. If output length is a constraint, prioritize a fully working core over extras.' +
-                '\n- After producing an artifact set status "artifact". A review pass will critique it; accept the feedback.' +
-                '\n- Never invent credentials, links, or claim actions you did not perform.' +
-                '\n- Keep replies under ~120 words unless writing code.' +
-                '\n\nOUTPUT: Respond with STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"artifact"|"done", "questions": ["..."], "artifact": {"filename": "app.html", "language": "html", "content": "..."}, "files": {"index.html": "...", "style.css": "..."}}' +
-                ' For complex multi-file projects use the "files" object instead of a single "artifact".' +
-                '\n\nFORMATTING: Write "reply" in clean, professional structured text: short paragraphs, bullet lists for options and steps, bold (**text**) for key terms and headings (## Section) for sections. Never dump long unstructured paragraphs. The UI renders these nicely.' +
-                memoryBlock
+                '\n- When building, produce artifacts in "artifact" (single) or "files" (multiple). Never truncate code. Default design: light premium (creamy white, soft borders, orange #F97316 accents) unless the user asks otherwise.' +
+                '\n- GAMES and complex apps must be COMPLETE and playable: full loop, input (keyboard/mouse/touch), win/lose/score states, controls legend, polish. Never ship stubs or TODOs.' +
+                '\n- Use the "test_html" tool or the review pass to verify; fix what fails.' +
+                '\n- Never invent credentials or claim actions you did not perform.' +
+                '\n- Track progress: after building, set "project_update": {"files_built": ["..."], "next_steps": ["..."], "notes": "..."} so the workspace remembers what exists and what remains.' +
+                '\n\nOUTPUT: STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"plan"|"artifact"|"done", "questions": ["..."], "plan": [{"phase": "...", "title": "...", "detail": "..."}], "tool_calls": [{"tool": "...", "args": {...}}], "artifact": {"filename": "...", "language": "...", "content": "..."}, "files": {"name": "..."}, "project_update": {"files_built": [...], "next_steps": [...], "notes": "..."}}' +
+                '\n\nFORMATTING: "reply" must be clean, professional and structured: short paragraphs, bullets for options/steps, **bold** for key terms, ## for sections. Never dump long unstructured text.' +
+                memoryBlock + proj
             );
         }
 
@@ -458,7 +558,7 @@
 
             const newChat = () => {
                 const boot = [{ id: uid(), role: 'system', text: 'Nexus Agent ready. New conversation.', ts: stamp() }];
-                const chat = { id: uid(), title: 'Chat ' + (chats.length + 1), messages: boot, created: Date.now() };
+                const chat = { id: uid(), title: 'Chat ' + (chats.length + 1), messages: boot, created: Date.now(), memory: {} };
                 setChats(prev => [...prev, chat]);
                 setActiveChatId(chat.id);
                 setActiveView('chat');
@@ -491,7 +591,7 @@
                     boot.push({ id: uid(), kind: 'card', title: 'CONNECT A BRAIN', tone: 'info', lines: ['Nexus needs a brain to think with. Tap SIGN IN below to use Puter (Claude Fable 5 - free account), or open BRAIN to add Gemini/Groq keys.', 'One-time setup - everything is then saved in this browser.'], ts: stamp() });
                     boot.push({ id: uid(), kind: 'puterPrompt', ts: stamp() });
                 }
-                const chat = { id: uid(), title: 'Chat 1', messages: boot, created: Date.now() };
+                const chat = { id: uid(), title: 'Chat 1', messages: boot, created: Date.now(), memory: {} };
                 setChats([chat]);
                 setActiveChatId(chat.id);
             }, []);
@@ -700,12 +800,19 @@
             const runReviewLoop = async (artId, directive, artifact) => {
                 let current = artifact;
                 for (let i = 0; i < 3; i++) {
+                    // Ground-truth sandbox test FIRST (real checks, not just opinion)
+                    let sandbox = null;
+                    if (/(\.html?$)|^html$/i.test(current.filename || '') || /<html/i.test(current.content || '')) {
+                        sandbox = testHtml(current.content || '');
+                        updateMessage(artId, { sandbox });
+                        pushMessage({ id: uid(), kind: 'card', title: 'SANDBOX TEST', tone: sandbox === 'PASS' ? 'ok' : 'warn', lines: [String(sandbox)], ts: stamp() });
+                    }
                     pushMessage({ id: uid(), kind: 'card', title: 'REVIEW PASS ' + (i + 1), tone: 'info', lines: ['Critiquing artifact against directive...'], ts: stamp() });
                     let rev;
                     try {
                         rev = await brainCall([
                             { role: 'system', content: REVIEW_SYSTEM },
-                            { role: 'user', content: 'DIRECTIVE:\n' + directive + '\n\nARTIFACT:\n' + current.content },
+                            { role: 'user', content: 'SANDBOX TEST RESULT:\n' + (sandbox || 'not run') + '\n\nDIRECTIVE:\n' + directive + '\n\nARTIFACT:\n' + current.content },
                         ], { jsonMode: true, temperature: 0.2 });
                     } catch (e) {
                         pushMessage({ id: uid(), kind: 'card', title: 'REVIEW ERROR', tone: 'error', lines: [String(e.message || e)], ts: stamp() });
@@ -882,40 +989,53 @@
                         ];
                     }
                     const messagesPayload = [
-                        { role: 'system', content: buildSystemPrompt() },
+                        { role: 'system', content: buildSystemPrompt(activeChat && activeChat.memory) },
                         ...hist,
                         { role: 'user', content: finalContent },
                     ];
-                    let out;
-                    if (usePuter) {
-                        // Stream the reply token-by-token: a live "typing" bubble
-                        // that resolves into the final answer (throttled updates).
-                        const liveId = uid();
-                        pushMessage({ id: liveId, role: 'agent', text: '', streaming: true, ts: stamp() });
-                        let buf = '', lastPaint = 0;
-                        out = await puterStream(messagesPayload, {
-                            jsonMode: true,
-                            onToken: (chunk) => {
-                                buf += chunk;
-                                const now = Date.now();
-                                if (now - lastPaint < 120) return; // throttle re-renders
-                                lastPaint = now;
-                                const n = Math.min(3, 1 + Math.floor(buf.length / 400));
-                                updateMessage(liveId, { text: '▊'.repeat(n), streaming: true });
-                            },
-                        });
-                        const replyText = out && out.reply ? out.reply : (out && typeof out === 'string' ? out : 'Done.');
-                        setMessages(prev => prev.map(m => m.id === liveId ? { ...m, text: replyText, streaming: false } : m));
-                    } else {
-                        out = await brainCall(messagesPayload, { jsonMode: true, temperature: 0.4 });
-                        if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, ts: stamp() });
+                    let out = await brainCall(messagesPayload, { jsonMode: true, temperature: 0.4 });
+                    // ---- TOOL LOOP: the agent calls tools, sees results, continues ----
+                    for (let round = 0; round < 4 && out && Array.isArray(out.tool_calls) && out.tool_calls.length; round++) {
+                        const results = [];
+                        for (const tc of out.tool_calls.slice(0, 3)) {
+                            const tName = String(tc.tool || '');
+                            const tArgs = tc.args || {};
+                            const cardId = uid();
+                            pushMessage({ id: cardId, kind: 'card', title: 'TOOL · ' + tName.toUpperCase(), tone: 'info', lines: ['Executing ' + tName + ' ' + JSON.stringify(tArgs).slice(0, 100)], ts: stamp() });
+                            let res;
+                            try { res = await runTool(tName, tArgs, { remoteToken }); }
+                            catch (e) { res = 'Tool error: ' + (e.message || e); }
+                            updateMessage(cardId, { tone: (res === 'PASS' || res.startsWith('Saved')) ? 'ok' : (String(res).startsWith('FAIL') || String(res).startsWith('[')) ? 'warn' : 'ok', lines: ['Result:', String(res).slice(0, 700)] });
+                            results.push({ tool: tName, args: tArgs, result: String(res).slice(0, 3000) });
+                        }
+                        out = await brainCall([
+                            { role: 'system', content: buildSystemPrompt(activeChat && activeChat.memory) },
+                            ...hist,
+                            { role: 'user', content: finalContent },
+                            { role: 'assistant', content: JSON.stringify({ tool_calls: out.tool_calls }) },
+                            { role: 'user', content: 'Tool results:\n' + results.map(r => '### ' + r.tool + '\n' + r.result).join('\n\n') + '\n\nContinue and produce the final reply (use more tools only if still needed).' },
+                        ], { jsonMode: true, temperature: 0.3 });
                     }
                     const secs = ((performance.now() - t0) / 1000).toFixed(1);
+                    const prov = lastBrainProvider || (loadBrain().provider ? loadBrain().provider.toUpperCase() : '--');
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
-                    setProviderTag(lastBrainProvider || (loadBrain().provider ? loadBrain().provider.toUpperCase() : '--'));
-                    if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, ts: stamp() });
+                    setProviderTag(prov);
+                    if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, provider: prov, ts: stamp() });
                     if (out.status === 'clarify' && Array.isArray(out.questions) && out.questions.length) {
                         pushMessage({ id: uid(), kind: 'questions', items: out.questions.slice(0, 4), ts: stamp() });
+                    }
+                    if (out.status === 'plan' && Array.isArray(out.plan) && out.plan.length) {
+                        pushMessage({ id: uid(), kind: 'plan', items: out.plan.slice(0, 6), ts: stamp() });
+                    }
+                    // ---- project memory: remember what exists and what remains ----
+                    if (out.project_update) {
+                        const pu = out.project_update;
+                        setChats(prev => prev.map(c => {
+                            if (c.id !== activeChatId) return c;
+                            const mem = c.memory || {};
+                            const files = Array.from(new Set([...(mem.files || []), ...(pu.files_built || [])]));
+                            return { ...c, memory: { goal: mem.goal || pu.goal || '', files, next: pu.next_steps || mem.next || [], notes: pu.notes || mem.notes || '' } };
+                        }));
                     }
                     // Multi-file support: out.files = {name: content} OR out.artifact (single)
                     const built = [];
@@ -1036,6 +1156,27 @@
                         </div>
                     );
                 }
+                if (m.kind === 'plan') {
+                    return (
+                        <div className="animate-fadeup rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden">
+                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-cream-200 bg-cream-50">
+                                <span className="text-[9px] font-mono tracking-[0.18em] text-stone-500">BUILD PLAN</span>
+                                <button onClick={() => agentTurn('Build all phases now, starting with phase 1. Execute the full plan.')} className="text-[9px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 px-2 py-1 rounded-md">BUILD ALL</button>
+                            </div>
+                            <div className="p-3 space-y-1.5">
+                                {(m.items || []).map((p, i) => (
+                                    <button key={i} onClick={() => agentTurn('Build phase ' + p.phase + ': ' + p.title + '. ' + (p.detail || ''))} className="w-full text-left flex items-start gap-2.5 rounded-xl border border-cream-300 bg-cream-50/60 hover:border-ember-300 hover:bg-ember-50/40 px-3 py-2.5 transition-all">
+                                        <span className="text-[9px] font-mono text-ember-600 border border-ember-200 bg-white rounded-md px-1.5 py-0.5 shrink-0">PHASE {p.phase}</span>
+                                        <span className="min-w-0">
+                                            <span className="block text-[12px] font-medium text-stone-700">{p.title}</span>
+                                            {p.detail && <span className="block text-[10.5px] text-stone-500 leading-snug">{p.detail}</span>}
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                }
                 if (m.kind === 'puterPrompt') {
                     return (
                         <div className="animate-fadeup rounded-2xl border border-ember-300 bg-ember-50/60 p-4 shadow-soft">
@@ -1093,6 +1234,7 @@
                                 <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-ember-100 text-ember-700 tracking-wider">{m.lang}</span>
                                 <span className="text-[9px] font-mono text-stone-400">×{(m.iterations || 1)}</span>
                                 {m.review && m.review.decision === 'approve' && <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">APPROVED</span>}
+                                {m.sandbox && <span className={'text-[8px] font-mono px-1.5 py-0.5 rounded ' + (m.sandbox === 'PASS' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600')}>{m.sandbox === 'PASS' ? 'SANDBOX PASS' : 'SANDBOX FAIL'}</span>}
                                 <span className="flex-1"></span>
                                 <button onClick={() => downloadBlob(m.content, m.filename)} className="text-[9px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 px-2 py-1 rounded-md">DOWNLOAD</button>
                                 <button onClick={() => { setPreviewHtml(m.content); setActiveView('preview'); }} className="text-[9px] font-mono text-stone-500 hover:text-ember-600">PREVIEW</button>
@@ -1131,7 +1273,7 @@
                 }
                 return (
                     <div className="animate-fadeup">
-                        <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{m.role === 'system' ? 'SYSTEM · ' + m.ts : 'NEXUS · ' + m.ts}</div>
+                        <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">{m.role === 'system' ? 'SYSTEM · ' + m.ts : 'NEXUS · ' + m.ts + (m.provider ? ' · ' + m.provider : '')}</div>
                         <div className={m.role === 'system' ? 'text-[12px] leading-relaxed text-stone-400' : 'space-y-0.5'}>
                             {m.role === 'system' ? <span>{m.text}</span> : renderRich(m.text || '')}
                         </div>
@@ -1157,7 +1299,7 @@
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V6.0</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V9.0</span>
                                     </div>
                                     <div className="text-[9px] text-stone-400 font-mono hidden sm:block">CHAT-NATIVE AUTONOMOUS AGENT</div>
                                 </div>
