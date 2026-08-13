@@ -185,142 +185,14 @@
             else text = String(resp || '');
             return opts.jsonMode ? parseJson(text) : text;
         }
-        async function puterStream(messages, opts = {}) {
-            /* Returns an async iterator of text chunks; also works in JSON mode
-               (caller accumulates and parses at the end). */
-            await ensurePuter();
-            const cfg = loadBrain();
-            const def = PROVIDER_DEFS.puter;
-            const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
-            let msgs = messages;
-            const last = messages[messages.length - 1];
-            if (last && Array.isArray(last.content)) {
-                const txt = last.content.filter(p => p.type === 'text').map(p => p.text).join('\n');
-                msgs = [...messages.slice(0, -1), { role: 'user', content: txt }];
-            }
-            const resp = await window.puter.ai.chat(msgs, { model, stream: true });
-            let full = '';
-            for await (const part of resp) {
-                const chunk = (part && part.text) || '';
-                if (chunk) { full += chunk; if (opts.onToken) opts.onToken(chunk); }
-            }
-            lastBrainProvider = 'PUTER';
-            return opts.jsonMode ? parseJson(full) : full;
-        }
-
-        /* ---- Rich text renderer: turns model output into clean, organized UI ---- */
-        function Inline({ text }) {
-            const parts = String(text || '').split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
-            return parts.map((p, i) => {
-                if (/^\*\*[^*]+\*\*$/.test(p)) return <strong key={i} className="font-semibold text-stone-800">{p.slice(2, -2)}</strong>;
-                if (/^`[^`]+`$/.test(p)) return <code key={i} className="px-1.5 py-0.5 rounded-md bg-cream-200 text-ember-700 font-mono text-[11px]">{p.slice(1, -1)}</code>;
-                if (/^\*[^*]+\*$/.test(p)) return <em key={i} className="italic text-stone-500">{p.slice(1, -1)}</em>;
-                return <span key={i}>{p}</span>;
-            });
-        }
-        function renderRich(text) {
-            const blocks = String(text || '').split(/\n{2,}/);
-            return blocks.map((b, i) => {
-                const t = b.trim();
-                if (!t) return null;
-                if (t.startsWith('```')) {
-                    const lines = b.split('\n');
-                    const code = lines.slice(1, lines.length - (lines[lines.length - 1].trim() === '```' ? 1 : 0)).join('\n');
-                    return <pre key={i} className="my-2 rounded-xl bg-cream-100 border border-cream-300 px-4 py-3 font-mono text-[11px] leading-relaxed text-stone-700 overflow-x-auto custom-scrollbar whitespace-pre-wrap">{code}</pre>;
-                }
-                const heading = t.match(/^(#{1,4})\s+(.*)/);
-                if (heading) {
-                    const size = heading[1].length >= 3 ? 'text-[12px]' : 'text-[13px]';
-                    return <div key={i} className={size + ' font-semibold text-stone-800 mt-2.5 mb-1'}><Inline text={heading[2]} /></div>;
-                }
-                const lines = b.split('\n');
-                if (lines.every(l => /^[-*•]\s+/.test(l.trim()))) {
-                    return (
-                        <div key={i} className="my-1.5 space-y-1">
-                            {lines.map((l, j) => (
-                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
-                                    <span className="text-ember-500 shrink-0 mt-px">•</span>
-                                    <span><Inline text={l.replace(/^[-*•]\s+/, '')} /></span>
-                                </div>
-                            ))}
-                        </div>
-                    );
-                }
-                if (lines.every(l => /^\d+\.\s+/.test(l.trim()))) {
-                    return (
-                        <div key={i} className="my-1.5 space-y-1">
-                            {lines.map((l, j) => (
-                                <div key={j} className="flex gap-2 text-[13px] leading-relaxed text-stone-600">
-                                    <span className="text-stone-400 font-mono text-[11px] shrink-0 pt-px">{l.match(/^\d+/)[0]}.</span>
-                                    <span><Inline text={l.replace(/^\d+\.\s+/, '')} /></span>
-                                </div>
-                            ))}
-                        </div>
-                    );
-                }
-                return (
-                    <p key={i} className="text-[13px] leading-relaxed text-stone-600 my-1">
-                        {lines.map((l, j) => <span key={j}>{j > 0 && <br />}<Inline text={l} /></span>)}
-                    </p>
-                );
-            });
-        }
-
-        /* ---- Multi-model chain: Puter (if signed in) -> saved keys (auto failover) ---- */
-        let lastBrainProvider = null;
-        const BRAIN_ORDER = ['puter', 'gemini', 'groq', 'github', 'cerebras', 'openrouter', 'deepseek'];
-
-        function providerKey(p) {
-            const cfg = loadBrain();
-            if (cfg.keys && cfg.keys[p]) return cfg.keys[p];
-            if (p === cfg.provider && cfg.key) return cfg.key; // legacy single-key
-            return '';
-        }
-        function configuredProviders() {
-            const cfg = loadBrain();
-            const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
-            const pool = BRAIN_ORDER.filter(p => {
-                if (p === 'puter') return true; // verified live (no popup)
-                return !!providerKey(p);
-            });
-            if (chosen !== 'auto') return pool.filter(p => p === chosen);
-            return pool;
-        }
-        async function puterAvailable() {
-            try {
-                await loadPuterScript();
-                return !!(window.puter && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn());
-            } catch (e) { return false; }
-        }
-        async function keyedBrainCall(messages, opts, provider) {
-            const def = PROVIDER_DEFS[provider];
-            const cfg = loadBrain();
-            const model = cfg.model && cfg.model.trim() ? cfg.model.trim() : def.defaultModel;
-            const headers = { 'Authorization': 'Bearer ' + providerKey(provider), 'Content-Type': 'application/json' };
-            if (provider === 'openrouter') { headers['HTTP-Referer'] = window.location.origin; headers['X-Title'] = 'Nexus Workspace'; }
-            const body = { model, messages, temperature: opts.temperature || 0.4 };
-            if (opts.jsonMode) body.response_format = { type: 'json_object' };
-            let res = await fetch(def.url, { method: 'POST', headers, body: JSON.stringify(body) });
-            if (!res.ok) {
-                const txt = await res.text();
-                if (res.status === 400 && opts.jsonMode) {
-                    delete body.response_format;
-                    res = await fetch(def.url, { method: 'POST', headers, body: JSON.stringify(body) });
-                    if (!res.ok) throw new Error('API ' + res.status + ': ' + txt.slice(0, 160));
-                } else {
-                    throw new Error('API ' + res.status + ': ' + txt.slice(0, 200));
-                }
-            }
-            const data = await res.json();
-            const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
-            if (!content) throw new Error('Empty response from model.');
-            return opts.jsonMode ? parseJson(content) : content;
+        function isLimitError(msg) {
+            return /credit limit|usage-limited|insufficient_funds|rate limit|429|402|quota|too many requests/i.test(String(msg || ''));
         }
         async function brainCall(messages, opts = {}) {
-            const pool = configuredProviders();
-            if (!pool.length) throw new Error('No brain configured. Open BRAIN and sign in with Puter or add an API key.');
             const cfg = loadBrain();
             const chosen = (cfg.provider && PROVIDER_DEFS[cfg.provider]) ? cfg.provider : 'auto';
+            const pool = configuredProviders();
+            if (!pool.length) throw new Error('No brain configured. Open BRAIN and sign in with Puter or add an API key.');
             const errors = [];
             for (const p of pool) {
                 try {
@@ -334,8 +206,30 @@
                     lastBrainProvider = p.toUpperCase();
                     return r;
                 } catch (e) {
-                    errors.push(p + ': ' + (e.message || e));
-                    if (chosen !== 'auto') throw e;
+                    const msg = (e && e.message) || String(e);
+                    errors.push(p + ': ' + msg);
+                    if (chosen !== 'auto') {
+                        // Pinned provider hit a limit -> fall back through the auto pool once
+                        if (isLimitError(msg)) {
+                            const autoPool = BRAIN_ORDER.filter(q => q !== p && (q === 'puter' || providerKey(q)));
+                            for (const q of autoPool) {
+                                try {
+                                    let r;
+                                    if (q === 'puter') {
+                                        if (!(await puterAvailable())) continue;
+                                        r = await puterBrainCall(messages, opts);
+                                        lastBrainProvider = 'PUTER';
+                                    } else {
+                                        r = await keyedBrainCall(messages, opts, q);
+                                        lastBrainProvider = q.toUpperCase();
+                                    }
+                                    lastBrainFallback = { from: p, to: q };
+                                    return r;
+                                } catch (e2) { errors.push(q + ': ' + ((e2 && e2.message) || e2)); }
+                            }
+                        }
+                        throw e;
+                    }
                 }
             }
             throw new Error('All brains failed: ' + errors.join(' | '));
@@ -1017,6 +911,10 @@
                         ], { jsonMode: true, temperature: 0.3 });
                     }
                     const secs = ((performance.now() - t0) / 1000).toFixed(1);
+                    if (lastBrainFallback) {
+                        pushMessage({ id: uid(), kind: 'card', title: 'LIMIT HIT · AUTO-FALLBACK', tone: 'warn', lines: [lastBrainFallback.from.toUpperCase() + ' hit its limit - this reply used ' + lastBrainFallback.to.toUpperCase() + ' instead. Switch to AUTO in BRAIN to always use the best available model.'], ts: stamp() });
+                        lastBrainFallback = null;
+                    }
                     const prov = lastBrainProvider || (loadBrain().provider ? loadBrain().provider.toUpperCase() : '--');
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
                     setProviderTag(prov);
@@ -1299,7 +1197,7 @@
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V9.0</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V9.1</span>
                                     </div>
                                     <div className="text-[9px] text-stone-400 font-mono hidden sm:block">CHAT-NATIVE AUTONOMOUS AGENT</div>
                                 </div>

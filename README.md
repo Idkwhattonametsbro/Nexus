@@ -208,6 +208,16 @@ background plumbing that holds the secrets.
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
+## V9: True agent (tools + plans + memory)
+
+- **Real tool loop in the chat**: web_search (Puter CORS-free or DuckDuckGo), read/list/save repo files, fetch_url, and a real HTML/JS sandbox tester. The agent calls tools, sees results, and continues (up to 4 rounds) - it no longer just talks.
+- **Plan checkpoints**: complex requests return a BUILD PLAN card with tappable phases and a BUILD ALL button. No more one-shot-or-refuse.
+- **Project memory per chat**: goal, files built, and next steps persist per conversation and are injected into every prompt.
+- **No-refuse prompt**: Nexus decomposes "impossible" requests, delivers what is possible, and states exactly what credential/step is missing for the rest.
+- **Ground-truth review**: artifacts run a real sandbox test (HTML parse + JS compile + external-dep check) before approval; the LLM critique is advisory.
+- **Provider transparency**: every reply shows which model answered (e.g. NEXUS · 18:02 · PUTER).
+- **Limit auto-fallback**: if a pinned provider hits a credit/rate limit, Nexus automatically retries through the AUTO chain and tells you which model actually answered. Switch to AUTO in BRAIN to always use the best available.
+
 ## V8: Full autonomy layer
 
 - **Multi-model auto-chain (AUTO mode)**: Nexus tries Puter (Claude Fable 5,
