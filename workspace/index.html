@@ -245,6 +245,112 @@
             { name: 'fetch_url', desc: 'Fetch a URL and return its text content.', args: { url: 'string' } },
             { name: 'test_html', desc: 'Sanity-test HTML/JS code (parse + syntax + external deps). Returns PASS or FAIL with details.', args: { code: 'string' } },
         ];
+        /* ================= EXTERNAL KNOWLEDGE TOOLS (public-apis / build-your-own-x / skills) ================= */
+        const KEYLESS_APIS = {
+            github_search: { url: 'https://api.github.com/search/repositories', desc: 'Search GitHub repos (no key, ~60 req/hr)', params: { q: 'query' } },
+            github_user: { url: 'https://api.github.com/users/', desc: 'GitHub user profile by username', params: { username: 'name' } },
+            hn: { url: 'https://hn.algolia.com/api/v1/search', desc: 'Hacker News stories search', params: { query: 'search term' } },
+            reddit: { url: 'https://www.reddit.com/search.json', desc: 'Reddit search (titles + posts, no key)', params: { q: 'search term' } },
+            wikipedia: { url: 'https://en.wikipedia.org/api/rest_v1/page/summary/', desc: 'Wikipedia article summary', params: { title: 'Article title' } },
+            weather: { url: 'https://api.open-meteo.com/v1/forecast', desc: 'Weather forecast (no key)', params: { latitude: 'lat', longitude: 'lon', current: 'temperature_2m,wind_speed_10m' } },
+            geocode: { url: 'https://geocoding-api.open-meteo.com/v1/search', desc: 'City to lat/lon (no key)', params: { name: 'city name' } },
+            crypto: { url: 'https://api.coingecko.com/api/v3/simple/price', desc: 'Crypto prices (no key, rate-limited)', params: { ids: 'bitcoin,ethereum', vs_currencies: 'usd' } },
+            quote: { url: 'https://api.quotable.io/random', desc: 'Random quote', params: {} },
+            advice: { url: 'https://api.adviceslip.com/advice', desc: 'Random piece of advice', params: {} },
+            joke: { url: 'https://v2.jokeapi.dev/joke/Any', desc: 'Random joke', params: {} },
+            catfact: { url: 'https://catfact.ninja/fact', desc: 'Random cat fact', params: {} },
+            dog: { url: 'https://dog.ceo/api/breeds/image/random', desc: 'Random dog image URL', params: {} },
+            country: { url: 'https://restcountries.com/v3.1/name/', desc: 'Country info by name', params: { name: 'country' } },
+            currency: { url: 'https://api.frankfurter.app/latest', desc: 'Exchange rates (no key)', params: { from: 'USD', to: 'EUR' } },
+            spacex: { url: 'https://api.spacexdata.com/v5/launches/latest', desc: 'Latest SpaceX launch', params: {} },
+            rickmorty: { url: 'https://rickandmortyapi.com/api/character/', desc: 'Rick & Morty character by name', params: { name: 'search' } },
+            ipinfo: { url: 'https://ipinfo.io/json', desc: 'Your IP geolocation info', params: {} },
+            uuid: { url: 'https://www.uuidtools.com/api/generate/v4/count/1', desc: 'Generate a UUID', params: {} },
+        };
+        async function httpJson(url) {
+            try {
+                if (window.puter && window.puter.net && window.puter.auth && window.puter.auth.isSignedIn && window.puter.auth.isSignedIn()) {
+                    const r = await window.puter.net.fetch(url);
+                    const t = await r.text();
+                    try { return JSON.parse(t); } catch (e) { return { raw: t.slice(0, 2000) }; }
+                }
+            } catch (e) {}
+            const r = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(url));
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const t = await r.text();
+            try { return JSON.parse(t); } catch (e) { return { raw: t.slice(0, 2000) }; }
+        }
+        async function runApiCall(a) {
+            const api = String(a.api || '');
+            const def = KEYLESS_APIS[api];
+            if (!def) return '[api_call: unknown api "' + api + '". Available: ' + Object.keys(KEYLESS_APIS).join(', ') + ']';
+            let url = def.url;
+            const p = a.params || {};
+            if (api === 'github_search' || api === 'github_user' || api === 'wikipedia' || api === 'country' || api === 'rickmorty') {
+                url = def.url + encodeURIComponent(String(p.q || p.username || p.title || p.name || ''));
+                if (api === 'github_search') url = def.url + '?q=' + encodeURIComponent(String(p.q || ''));
+            } else if (api === 'hn' || api === 'reddit') {
+                url = def.url + '?' + new URLSearchParams({ q: String(p.q || ''), hitsPerPage: '5' }).toString();
+            } else if (api === 'weather') {
+                url = def.url + '?' + new URLSearchParams({ latitude: String(p.latitude || 31.63), longitude: String(p.longitude || -8.0), current: 'temperature_2m,wind_speed_10m' }).toString();
+            } else if (api === 'geocode') {
+                url = def.url + '?' + new URLSearchParams({ name: String(p.name || '') }).toString();
+            } else if (api === 'crypto') {
+                url = def.url + '?' + new URLSearchParams({ ids: String(p.ids || 'bitcoin,ethereum'), vs_currencies: 'usd' }).toString();
+            } else if (api === 'currency') {
+                url = def.url + '?' + new URLSearchParams({ from: String(p.from || 'USD'), to: String(p.to || 'EUR') }).toString();
+            } else if (api === 'dog') {
+                url = def.url;
+            } else if (api === 'reddit' || api === 'hn') { /* handled above */ }
+            const data = await httpJson(url);
+            return JSON.stringify(data).slice(0, 3000);
+        }
+        const SKILL_PACKS = {
+            'frontend-expert': { title: 'Frontend Expert', desc: 'Elite UI/UX standards: premium design systems, responsive layouts, a11y, animations.', prompt: 'Apply senior frontend standards: semantic HTML, accessible controls, responsive breakpoints, tasteful motion, consistent spacing/typography system, and a polished premium aesthetic (creamy light theme with warm orange accents by default).' },
+            'game-designer': { title: 'Game Designer', desc: 'Complete, playable games with loops, controls, sound, and scoring.', prompt: 'Build complete playable games: full game loop, keyboard/mouse/touch input, win/lose/score states, visible controls legend, WebAudio sound, and real polish. Never ship stubs.' },
+            'api-integrator': { title: 'API Integrator', desc: 'Connect real external services; use the api_call and fetch_url tools.', prompt: 'When a task mentions external data, actively use the api_call and fetch_url tools to pull real data. Handle errors gracefully, show loading states, and cite what you fetched.' },
+            'youtube-studio': { title: 'YouTube Studio', desc: 'YouTube content systems: scripts, thumbnails, SEO, scheduling.', prompt: 'For YouTube/creator systems: separate the audience goal from the deliverable. Build script generators with hooks/retention patterns, thumbnail layout tools, keyword/SEO helpers, and clearly document the YouTube Data API key needed for actual uploads.' },
+            'data-analyst': { title: 'Data Analyst', desc: 'Dashboards and analysis with real data, charts, and export.', prompt: 'Build data dashboards with real data where possible (use api_call), charts (inline SVG/canvas), filters, and CSV/JSON export buttons.' },
+            'debugger': { title: 'Debugger', desc: 'Systematic debugging: reproduce, isolate, fix, verify.', prompt: 'Debug systematically: reproduce the issue, isolate the cause, apply the minimal fix, then verify with the test_html tool. Explain root cause clearly.' },
+        };
+        function skillsDescription() { return Object.entries(SKILL_PACKS).map(([k, v]) => '- ' + k + ': ' + v.desc).join('\n'); }
+        async function runTutorial(a) {
+            const kw = String(a.topic || '').toLowerCase().trim();
+            if (!kw) return '[tutorial: missing topic. e.g. topic: "database"]';
+            const r = await fetch('https://raw.githubusercontent.com/codecrafters-io/build-your-own-x/master/README.md');
+            if (!r.ok) return '[tutorial: fetch failed]';
+            const md = await r.text();
+            const lines = md.split('\n');
+            // find the section whose heading best matches the topic
+            let sectionIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                if (/^#{2,3}\s/.test(lines[i]) && lines[i].toLowerCase().includes(kw)) { sectionIdx = i; break; }
+            }
+            if (sectionIdx === -1) {
+                // fallback: first heading containing any keyword token
+                const toks = kw.split(/\s+/).slice(0, 3);
+                for (let i = 0; i < lines.length; i++) {
+                    if (/^#{2,3}\s/.test(lines[i]) && toks.some(t => t.length > 3 && lines[i].toLowerCase().includes(t))) { sectionIdx = i; break; }
+                }
+            }
+            if (sectionIdx === -1) return '[tutorial: no section matched "' + kw + '". Available topics: 3D Renderer, AI Model, Database, Docker, Game, Git, Operating System, Programming Language, Neural Network, etc.]';
+            let out = [], count = 0;
+            for (let i = sectionIdx + 1; i < lines.length && count < 15; i++) {
+                if (/^#{2,3}\s/.test(lines[i])) break;
+                const t = lines[i].trim();
+                if (t.startsWith('* [') || t.startsWith('- [')) { out.push(t.replace(/\s*-\s*$/, '')); count++; }
+            }
+            return 'Tutorial section: ' + lines[sectionIdx].replace(/^#+\s*/, '') + '\n' + (out.join('\n') || '(no entries)');
+        }
+
+        /* register the new tools */
+        TOOL_DEFS.push(
+            { name: 'api_call', desc: 'Call a free keyless public API (GitHub search, Hacker News, Reddit, Wikipedia, weather, crypto, quotes, countries, currency, SpaceX, etc.). See browse_apis for the full list.', args: { api: 'string', params: 'object' } },
+            { name: 'browse_apis', desc: 'List the available keyless public APIs.', args: {} },
+            { name: 'tutorial', desc: 'Fetch a "build your own X" tutorial outline (git, database, OS, game, language, etc.) from the codecrafters collection.', args: { topic: 'string' } },
+            { name: 'load_skill', desc: 'Load a skill pack that changes how you approach tasks. Available: ' + Object.keys(SKILL_PACKS).join(', ') + '.', args: { skill: 'string' } }
+        );
+
         function toolsDescription() {
             return TOOL_DEFS.map(t => '- ' + t.name + '(' + Object.keys(t.args).map(k => k + ': ' + t.args[k]).join(', ') + ') - ' + t.desc).join('\n');
         }
@@ -324,6 +430,15 @@
                 return t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
             }
             if (name === 'test_html') return testHtml(a.code || '');
+            if (name === 'api_call') return runApiCall(a);
+            if (name === 'browse_apis') return Object.entries(KEYLESS_APIS).map(([k, v]) => '- ' + k + ': ' + v.desc).join('\n');
+            if (name === 'tutorial') return runTutorial(a);
+            if (name === 'load_skill') {
+                const sk = String(a.skill || '').toLowerCase().trim();
+                const pack = SKILL_PACKS[sk];
+                if (!pack) return '[load_skill: unknown skill "' + sk + '". Available: ' + Object.keys(SKILL_PACKS).join(', ') + ']';
+                return 'SKILL LOADED: ' + pack.title + '\n' + pack.prompt;
+            }
             return '[unknown tool: ' + name + ']';
         }
 
@@ -333,6 +448,9 @@
                 ? '\n\n[Learned rules from prior sessions]\n' + mem.map(l => '- ' + l).join('\n')
                 : '';
             const pm = projectMemory || {};
+            const activeSkills = (pm.skills && pm.skills.length)
+                ? '\n\n[ACTIVE SKILLS]\n' + pm.skills.map(s => '- ' + s).join('\n')
+                : '';
             const proj = (pm.goal || (pm.files && pm.files.length) || (pm.next && pm.next.length))
                 ? '\n\n[Project context - this conversation]\n' +
                   (pm.goal ? 'Goal: ' + pm.goal + '\n' : '') +
@@ -356,7 +474,7 @@
                 '\n- Track progress: after building, set "project_update": {"files_built": ["..."], "next_steps": ["..."], "notes": "..."} so the workspace remembers what exists and what remains.' +
                 '\n\nOUTPUT: STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"plan"|"artifact"|"done", "questions": ["..."], "plan": [{"phase": "...", "title": "...", "detail": "..."}], "tool_calls": [{"tool": "...", "args": {...}}], "artifact": {"filename": "...", "language": "...", "content": "..."}, "files": {"name": "..."}, "project_update": {"files_built": [...], "next_steps": [...], "notes": "..."}}' +
                 '\n\nFORMATTING: "reply" must be clean, professional and structured: short paragraphs, bullets for options/steps, **bold** for key terms, ## for sections. Never dump long unstructured text.' +
-                memoryBlock + proj
+                memoryBlock + proj + activeSkills
             );
         }
 
@@ -932,8 +1050,16 @@
                             if (c.id !== activeChatId) return c;
                             const mem = c.memory || {};
                             const files = Array.from(new Set([...(mem.files || []), ...(pu.files_built || [])]));
-                            return { ...c, memory: { goal: mem.goal || pu.goal || '', files, next: pu.next_steps || mem.next || [], notes: pu.notes || mem.notes || '' } };
+                            return { ...c, memory: { goal: mem.goal || pu.goal || '', files, next: pu.next_steps || mem.next || [], notes: pu.notes || mem.notes || '', skills: mem.skills || [] } };
                         }));
+                    }
+                    // detect SKILL LOADED tool results and persist the skill
+                    const lastTools = (out.tool_calls || []).filter(tc => tc.tool === 'load_skill');
+                    for (const tc of lastTools) {
+                        const sk = String((tc.args || {}).skill || '').toLowerCase().trim();
+                        if (SKILL_PACKS[sk]) {
+                            setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, memory: { ...(c.memory || {}), skills: Array.from(new Set([...(c.memory && c.memory.skills ? c.memory.skills : []), sk])) } } : c));
+                        }
                     }
                     // Multi-file support: out.files = {name: content} OR out.artifact (single)
                     const built = [];
@@ -1301,11 +1427,15 @@
                                                 {brainConfigured() ? 'NEXUS IS THINKING' : 'PIPELINE RUNNING IN BACKGROUND'} · {providerTag}
                                             </div>
                                         )}
-                                        {!busy && messages.filter(m => m.role === 'user').length < 1 && (
+                                        {!busy && (
                                             <div className="flex flex-wrap gap-2 pt-2">
                                                 {QUICK_TASKS.map(t => (
                                                     <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3.5 py-2 rounded-full transition-all">{t}</button>
                                                 ))}
+                                                <button onClick={() => setChatInput('')} className="text-[10px] font-mono border border-ember-300 bg-ember-50 text-ember-700 hover:bg-ember-100 px-3.5 py-2 rounded-full transition-all" title="Load a skill pack"
+                                                    onMouseDown={e => { e.preventDefault(); const pack = window.prompt('Load skill pack:\n' + Object.keys(SKILL_PACKS).map(k => ' - ' + k + ' (' + SKILL_PACKS[k].title + ')').join('\n')); if (pack && SKILL_PACKS[pack.trim().toLowerCase()]) { setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, memory: { ...(c.memory || {}), skills: Array.from(new Set([...(c.memory && c.memory.skills ? c.memory.skills : []), pack.trim().toLowerCase()])) } } : c)); pushMessage({ id: uid(), kind: 'card', title: 'SKILL LOADED · ' + SKILL_PACKS[pack.trim().toLowerCase()].title.toUpperCase(), tone: 'ok', lines: [SKILL_PACKS[pack.trim().toLowerCase()].prompt.slice(0, 120)], ts: stamp() }); } }}>
+                                                    + SKILLS
+                                                </button>
                                             </div>
                                         )}
                                     </div>

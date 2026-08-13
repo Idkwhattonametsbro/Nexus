@@ -208,6 +208,27 @@ background plumbing that holds the secrets.
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
+## V9.2: External knowledge tools (from the community repos)
+
+Integrated four public repos as real agent tools:
+
+- **public-apis/public-apis** -> `api_call` tool with 19 keyless APIs built in:
+  GitHub search, Hacker News, Reddit (the browser-native spirit of
+  agent-reach's "eyes on the internet"), Wikipedia, Open-Meteo weather,
+  CoinGecko crypto, quotes, jokes, countries, FX rates, SpaceX, and more.
+  `browse_apis` lists them for the model.
+- **Panniantong/agent-reach** (71k stars) -> its zero-fee social access maps to
+  the Reddit/HN/GitHub `api_call` entries for browser use; the full agent-reach
+  CLI (Twitter/X, YouTube, Bilibili, XiaoHongShu) is available for pipeline or
+  local use: `pip install agent-reach && agent-reach doctor`.
+- **codecrafters-io/build-your-own-x** -> `tutorial` tool: fetch a step-by-step
+  "build your own X" outline (database, git, OS, game, language, 3D renderer,
+  neural network...) so complex builds follow real engineering guides.
+- **vercel-labs/skills** (28.8k stars) -> `load_skill` tool + a **+ SKILLS**
+  button: skill packs (frontend-expert, game-designer, api-integrator,
+  youtube-studio, data-analyst, debugger) that change how the agent approaches
+  tasks. Loaded skills persist per chat and are injected into every prompt.
+
 ## V9: True agent (tools + plans + memory)
 
 - **Real tool loop in the chat**: web_search (Puter CORS-free or DuckDuckGo), read/list/save repo files, fetch_url, and a real HTML/JS sandbox tester. The agent calls tools, sees results, and continues (up to 4 rounds) - it no longer just talks.
