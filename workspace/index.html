@@ -554,6 +554,7 @@
             { name: 'mcp_list', desc: 'List connected MCP servers and their available tools.', args: {} },
             { name: 'mcp_call', desc: 'Call a tool on a connected MCP server. First use mcp_connect and mcp_list.', args: { server: 'string', tool: 'string', args: 'object' } },
             { name: 'schedule_task', desc: 'Schedule a task, reminder, or one-shot timer. Use oneShot=true for a single timer ("set a timer for 10 minutes"). Interval tasks repeat.', args: { label: 'string', prompt: 'string', interval_minutes: 'number', oneShot: 'boolean' } },
+            { name: 'google_setup', desc: 'Get the 10-minute setup guide for connecting Google services (Gmail, Drive, Calendar, YouTube) via OAuth so Nexus can access your account with your explicit consent.', args: {} },
             { name: 'list_schedules', desc: 'List all scheduled tasks.', args: {} },
             { name: 'cancel_schedule', desc: 'Cancel a scheduled task by label.', args: { label: 'string' } }
         );
@@ -734,6 +735,16 @@
             if (name === 'skill_catalog') {
                 return 'SKILL PACKS: ' + Object.entries(SKILL_PACKS).map(([k, v]) => k + ' (' + v.title + ')').join(', ') +
                     '\nSOURCES: awesome-claude-skills (1000+ skills), addyosmani/agent-skills (24 lifecycle skills), scienceaix/agentskills, SkillKit (package manager, 46 agents / 31 sources), vercel-labs/skills.\nUse load_skill to activate a pack, or ask me to add a skill from these collections.';
+            }
+            if (name === 'google_setup') {
+                return 'GOOGLE CONNECT - 10 MINUTE SETUP (your consent, your account):\n' +
+                    '1. Go to console.cloud.google.com -> create a project (free).\n' +
+                    '2. APIs & Services -> Enable: Gmail API, Drive API, Calendar API, YouTube Data API v3.\n' +
+                    '3. OAuth consent screen -> External -> add your email -> scopes: gmail.send, drive.file, calendar.events, youtube.upload (optional: gmail.readonly, drive.readonly).\n' +
+                    '4. Credentials -> Create OAuth client ID -> Web app -> Authorized redirect URI: https://idkwhattonametsbro.github.io/Nexus/workspace/oauth.html\n' +
+                    '5. Copy the Client ID + Client Secret.\n' +
+                    'Then tell Nexus "I have my Google client ID" and it will wire the sign-in button.\n' +
+                    'WHY OAuth: browsers cannot log in as you directly - OAuth is the secure, standard way for you to grant Nexus scoped access (read/send what YOU approve). Your password never touches Nexus.';
             }
             if (name === 'mcp_connect') return mcpConnect(a);
             if (name === 'mcp_list') return mcpListTools(a);
@@ -1452,6 +1463,7 @@
                     }
                     const logLines = await fetchRunLog(run.id, token);
                     updateMessage(thoughtId, { secs, lines: logLines.length ? logLines : ['Pipeline run #' + run.run_number + ' completed successfully.'] });
+                    pushMessage({ id: uid(), kind: 'card', title: 'BACKGROUND WORK · RUN #' + run.run_number, tone: 'info', lines: ['Expand to see the full execution log.', ...(logLines.slice(0, 14))], ts: stamp() });
                     setProviderTag('PIPELINE');
                     const rep = await fetch(PAGES_ROOT + '/output/latest_report.md', { cache: 'no-store' });
                     if (rep.ok) {
@@ -1742,63 +1754,19 @@
                 if (m.kind === 'thought') {
                     const open = expandedThought === m.id;
                     return (
-                        <div className="animate-fadeup">
-                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="flex items-center gap-2 text-[11px] font-mono text-stone-500 hover:text-ember-600 transition-colors group">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-ember-500"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" /><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
-                                Thought for {m.secs}s
-                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={'transition-transform ' + (open ? 'rotate-180' : '') + ' text-stone-400'}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                <span className="text-[9px] text-stone-400 group-hover:text-ember-600">{open ? 'HIDE' : 'VIEW REASONING'}</span>
+                        <div className="animate-fadeup rounded-xl border border-cream-300 bg-white shadow-soft overflow-hidden">
+                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-mono text-stone-500 hover:text-ember-600 transition-colors group">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" className={'transition-transform ' + (open ? 'rotate-90' : '') + ' text-stone-400'}><path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                <span className="text-ember-500 font-semibold tracking-wider">THINKING</span>
+                                <span className="text-stone-400">Thought for {m.secs}s</span>
+                                <span className="ml-auto text-stone-400">{open ? 'HIDE' : 'EXPAND'} ▾</span>
                             </button>
                             {open && (
-                                <div className="mt-1.5 ml-1 rounded-xl border border-cream-300 bg-white px-3.5 py-3 space-y-1.5">
+                                <div className="px-3 pb-3 space-y-1.5">
                                     <div className="text-[8px] font-mono tracking-[0.18em] text-stone-400">REASONING TRACE</div>
                                     {(m.lines || []).map((l, i) => <div key={i} className="text-[11px] font-mono leading-relaxed text-stone-600">▸ {l}</div>)}
                                 </div>
                             )}
-                        </div>
-                    );
-                }
-                if (m.kind === 'plan') {
-                    return (
-                        <div className="animate-fadeup rounded-2xl border border-cream-300 bg-white shadow-soft overflow-hidden">
-                            <div className="flex items-center justify-between px-3.5 py-2 border-b border-cream-200 bg-cream-50">
-                                <span className="text-[9px] font-mono tracking-[0.18em] text-stone-500">BUILD PLAN</span>
-                                <button onClick={() => agentTurn('Build all phases now, starting with phase 1. Execute the full plan.')} className="text-[9px] font-mono text-ember-600 hover:text-ember-700 border border-ember-200 bg-ember-50 px-2 py-1 rounded-md">BUILD ALL</button>
-                            </div>
-                            <div className="p-3 space-y-1.5">
-                                {(m.items || []).map((p, i) => (
-                                    <button key={i} onClick={() => agentTurn('Build phase ' + p.phase + ': ' + p.title + '. ' + (p.detail || ''))} className="w-full text-left flex items-start gap-2.5 rounded-xl border border-cream-300 bg-cream-50/60 hover:border-ember-300 hover:bg-ember-50/40 px-3 py-2.5 transition-all">
-                                        <span className="text-[9px] font-mono text-ember-600 border border-ember-200 bg-white rounded-md px-1.5 py-0.5 shrink-0">PHASE {p.phase}</span>
-                                        <span className="min-w-0">
-                                            <span className="block text-[12px] font-medium text-stone-700">{p.title}</span>
-                                            {p.detail && <span className="block text-[10.5px] text-stone-500 leading-snug">{p.detail}</span>}
-                                        </span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    );
-                }
-                if (m.kind === 'puterPrompt') {
-                    return (
-                        <div className="animate-fadeup rounded-2xl border border-ember-300 bg-ember-50/60 p-4 shadow-soft">
-                            <div className="text-[10px] font-semibold tracking-[0.14em] text-ember-700 mb-2">CONNECT NEXUS TO A BRAIN</div>
-                            <div className="text-[12px] leading-relaxed text-stone-600 mb-3">One tap signs you into Puter - free account, no API key, and Nexus thinks with <b>Claude Fable 5</b>.</div>
-                            <button
-                                onClick={async () => {
-                                    try {
-                                        await ensurePuter();
-                                        const c = loadBrain(); c.provider = 'puter'; saveBrain(c);
-                                        pushMessage({ id: uid(), kind: 'card', title: 'PUTER CONNECTED', tone: 'ok', lines: ['You are signed in. Nexus now thinks with Claude Fable 5. Everything is saved in this browser.'], ts: stamp() });
-                                    } catch (e) {
-                                        pushMessage({ id: uid(), kind: 'card', title: 'SIGN-IN FAILED', tone: 'error', lines: [String(e.message || e)], ts: stamp() });
-                                    }
-                                }}
-                                className="w-full text-[11px] font-mono btn-primary text-white px-4 py-3 rounded-xl tracking-wider transition-all shadow-soft"
-                            >
-                                SIGN IN WITH PUTER → CLAUDE FABLE 5
-                            </button>
-                            <div className="text-[9px] text-stone-400 mt-2 leading-relaxed">Prefer keys? Open BRAIN and add a free Gemini or Groq key instead.</div>
                         </div>
                     );
                 }
@@ -1831,14 +1799,21 @@
                     );
                 }
                 if (m.kind === 'card') {
-                    const toneCls = m.tone === 'ok' ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
-                        : m.tone === 'warn' ? 'border-amber-200 bg-amber-50/70 text-amber-800'
-                        : m.tone === 'error' ? 'border-red-200 bg-red-50/70 text-red-700'
-                        : 'border-cream-300 bg-white text-stone-600';
+                    const open = expandedThought === m.id;
+                    const dotCls = m.tone === 'ok' ? 'bg-emerald-500' : m.tone === 'warn' ? 'bg-amber-500' : m.tone === 'error' ? 'bg-red-500' : 'bg-ember-400';
+                    const toneCls = m.tone === 'ok' ? 'border-emerald-200 bg-white' : m.tone === 'warn' ? 'border-amber-200 bg-white' : m.tone === 'error' ? 'border-red-200 bg-white' : 'border-cream-300 bg-white';
                     return (
-                        <div className={'animate-fadeup rounded-xl border px-3.5 py-2.5 ' + toneCls}>
-                            <div className="text-[8px] font-mono tracking-[0.18em] opacity-70 mb-1">{m.title}</div>
-                            <div className="text-[11px] leading-relaxed space-y-0.5">{(m.lines || []).map((l, i) => <div key={i}>{l}</div>)}</div>
+                        <div className={'animate-fadeup rounded-xl border shadow-soft overflow-hidden ' + toneCls}>
+                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-mono text-stone-600 hover:text-ember-600 transition-colors">
+                                <span className={'w-1.5 h-1.5 rounded-full shrink-0 ' + dotCls}></span>
+                                <span className="font-semibold tracking-wider uppercase">{m.title}</span>
+                                <span className="ml-auto text-stone-400">{open ? 'HIDE' : 'EXPAND'} ▾</span>
+                            </button>
+                            {open && (
+                                <div className="px-3 pb-3 text-[11px] leading-relaxed space-y-1 text-stone-600">
+                                    {(m.lines || []).map((l, i) => <div key={i} className="break-words">{l}</div>)}
+                                </div>
+                            )}
                         </div>
                     );
                 }
@@ -1930,7 +1905,7 @@
                                     <div className="min-w-0">
                                         <div className="flex items-center gap-2">
                                             <span className="font-bold text-[15px] tracking-[0.14em] text-stone-900">NEXUS</span>
-                                            <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V10.4</span>
+                                            <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V11.0</span>
                                         </div>
                                     </div>
                                 </div>

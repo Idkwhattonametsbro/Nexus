@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nexus · Google Connect</title>
+<style>
+  body { margin:0; font-family: Inter, system-ui, sans-serif; background:#F6F5F2; color:#3F3A34; display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .card { background:#fff; border:1px solid #EBE4D8; border-radius:20px; padding:36px 40px; max-width:440px; box-shadow:0 10px 34px rgba(28,25,23,.08); text-align:center; }
+  .logo { width:56px; height:56px; border-radius:16px; background:linear-gradient(135deg,#FB923C,#EA580C); display:inline-flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:20px; margin-bottom:16px; }
+  h1 { font-size:19px; margin:0 0 8px; }
+  p { font-size:13.5px; color:#6b6560; line-height:1.55; margin:0 0 18px; }
+  #status { font-size:12px; font-family: ui-monospace, monospace; background:#FAF8F4; border:1px solid #EBE4D8; border-radius:10px; padding:12px; color:#3F3A34; word-break:break-all; min-height:40px; }
+  .btn { display:inline-block; margin-top:16px; background:linear-gradient(135deg,#FB923C,#EA580C); color:#fff; border:none; border-radius:12px; padding:11px 22px; font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">N</div>
+    <h1>Nexus · Google Connect</h1>
+    <p>This page completes the Google OAuth handshake. The access token you approve is stored only in this browser and used to let Nexus act on your behalf (with the scopes you approved).</p>
+    <div id="status">Waiting for Google's response...</div>
+    <a class="btn" href="./index.html">← Back to Nexus</a>
+  </div>
+  <script>
+    const status = document.getElementById('status');
+    try {
+      const params = new URLSearchParams(window.location.hash.slice(1) || window.location.search);
+      const token = params.get('access_token');
+      if (token) {
+        try {
+          const saved = JSON.parse(localStorage.getItem('nexus_google') || '{}');
+          saved.access_token = token;
+          saved.at = Date.now();
+          const info = awaitGoogle(token);
+          if (info && info.email) saved.email = info.email;
+          localStorage.setItem('nexus_google', JSON.stringify(saved));
+          status.textContent = '✅ Connected as ' + (info && info.email ? info.email : 'your Google account') + '. Return to Nexus - Google tools are live.';
+        } catch (e) {
+          localStorage.setItem('nexus_google', JSON.stringify({ access_token: token, at: Date.now() }));
+          status.textContent = '✅ Token stored. Return to Nexus.';
+        }
+      } else if (params.get('error')) {
+        status.textContent = '❌ ' + params.get('error') + ': ' + (params.get('error_description') || 'You declined or the request failed.');
+      } else {
+        status.textContent = 'No token in the URL. This page must be opened via the Google sign-in flow from Nexus.';
+      }
+    } catch (e) { status.textContent = 'Error: ' + e.message; }
+    async function awaitGoogle(tok) {
+      try {
+        const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', { headers: { Authorization: 'Bearer ' + tok } });
+        if (r.ok) return await r.json();
+      } catch (e) {}
+      return null;
+    }
+  </script>
+</body>
+</html>
