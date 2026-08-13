@@ -153,7 +153,8 @@ class TestAgentFlow(unittest.TestCase):
         os.close(fd)
         self._orig = reflection.LESSONS_FILE
         reflection.LESSONS_FILE = self.tmp
-        SelfReflection.ensure_storage()
+        with open(self.tmp, "w", encoding="utf-8") as f:
+            json.dump(reflection.DEFAULT_STATE, f)
 
     def tearDown(self):
         reflection.LESSONS_FILE = self._orig
