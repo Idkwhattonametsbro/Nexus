@@ -78,6 +78,7 @@
 
         const PROVIDER_POOL = ['DEEPSEEK', 'GROQ', 'OPENROUTER', 'OPENAI'];
         const FALLBACK_ACTIONS_URL = 'https://github.com/Idkwhattonametsbro/Nexus/actions/workflows/run_agent.yml';
+        const FALLBACK_REPO = 'Idkwhattonametsbro/Nexus';
 
         function actionsUrl() {
             try {
@@ -89,6 +90,18 @@
                 }
             } catch (e) {}
             return FALLBACK_ACTIONS_URL;
+        }
+
+        function githubRepo() {
+            try {
+                const host = window.location.hostname;
+                const path = window.location.pathname.split('/').filter(Boolean);
+                if (host.endsWith('github.io') && path.length >= 1) {
+                    const owner = host.split('.')[0];
+                    return owner + '/' + path[0];
+                }
+            } catch (e) {}
+            return FALLBACK_REPO;
         }
 
         function stamp() {
@@ -119,6 +132,11 @@
             const [previewHtml, setPreviewHtml] = useState(null);
             const [previewKey, setPreviewKey] = useState(0);
             const [refreshTick, setRefreshTick] = useState(0);
+            const [showRemote, setShowRemote] = useState(false);
+            const [remoteToken, setRemoteToken] = useState('');
+            const [remoteDirective, setRemoteDirective] = useState('');
+            const [remoteBusy, setRemoteBusy] = useState(false);
+            const [remoteStatus, setRemoteStatus] = useState('');
             const editorRef = useRef(null);
             const logRef = useRef(null);
             const chatScrollRef = useRef(null);
@@ -197,6 +215,60 @@
             const pushLog = useCallback((tag, text, tone) => {
                 setLogs(prev => [...prev.slice(-200), { ts: stamp(), tag, text, tone: tone || 'dim' }]);
             }, []);
+
+            // Remote control: dispatch the pipeline directly from the browser.
+            useEffect(() => {
+                try {
+                    const saved = localStorage.getItem('nexus_remote_token') || '';
+                    setRemoteToken(saved);
+                } catch (e) {}
+            }, []);
+
+            const handleRemoteDispatch = async () => {
+                if (!remoteToken.trim() || !remoteDirective.trim() || remoteBusy) return;
+                const repo = githubRepo();
+                setRemoteBusy(true);
+                setRemoteStatus('DISPATCHING...');
+                try {
+                    const res = await fetch('https://api.github.com/repos/' + repo + '/actions/workflows/run_agent.yml/dispatches', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer ' + remoteToken.trim(),
+                            'Accept': 'application/vnd.github+json',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ ref: 'main', inputs: { prompt: remoteDirective.trim(), mode: 'full' } }),
+                    });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    try { localStorage.setItem('nexus_remote_token', remoteToken.trim()); } catch (e) {}
+                    pushLog('REMOTE', 'Directive dispatched from browser to ' + repo, 'active');
+                    setRemoteStatus('RUN STARTED - POLLING STATUS...');
+                    // Poll for the newest dispatch run.
+                    let run = null;
+                    for (let i = 0; i < 8; i++) {
+                        await new Promise(r => setTimeout(r, 4000));
+                        const r2 = await fetch('https://api.github.com/repos/' + repo + '/actions/runs?event=workflow_dispatch&per_page=1', {
+                            headers: { 'Authorization': 'Bearer ' + remoteToken.trim(), 'Accept': 'application/vnd.github+json' },
+                        });
+                        const d = await r2.json();
+                        if (d.workflow_runs && d.workflow_runs.length) {
+                            run = d.workflow_runs[0];
+                            if (run.status !== 'queued' && run.status !== 'in_progress') break;
+                            setRemoteStatus(run.status.toUpperCase() + ' - RUN #' + run.run_number);
+                        }
+                    }
+                    if (run) {
+                        setRemoteStatus('RUN #' + run.run_number + ' - ' + (run.status === 'completed' ? run.conclusion.toUpperCase() : run.status.toUpperCase()));
+                        setRefreshTick(t => t + 1);
+                        setMemoryEpoch(e => e + 1);
+                    }
+                } catch (e) {
+                    setRemoteStatus('ERROR: ' + e.message);
+                    pushLog('REMOTE', 'Dispatch failed: ' + e.message, 'info');
+                } finally {
+                    setRemoteBusy(false);
+                }
+            };
 
             const handleSubmit = (e) => {
                 e.preventDefault();
@@ -301,6 +373,12 @@
                             >
                                 DEPLOY TO PIPELINE
                             </a>
+                            <button
+                                onClick={() => setShowRemote(true)}
+                                className="text-[11px] font-mono border border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:border-zinc-500 px-3.5 py-1.5 rounded-md tracking-wider transition-all"
+                            >
+                                REMOTE
+                            </button>
                         </div>
                     </header>
 
@@ -580,6 +658,61 @@
                             <span>MEM <span className="text-zinc-400">{memoryData ? memoryLessons.length : '--'}</span></span>
                         </div>
                     </footer>
+
+                    {/* ============ REMOTE CONTROL MODAL ============ */}
+                    {showRemote && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+                            <div className="w-[520px] max-w-[92vw] rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl glow-strong">
+                                <div className="flex items-center justify-between px-5 h-12 border-b border-zinc-800">
+                                    <span className="text-[11px] font-semibold tracking-[0.18em] text-zinc-200">REMOTE CONTROL</span>
+                                    <button onClick={() => setShowRemote(false)} className="text-zinc-500 hover:text-zinc-200 text-sm px-2">X</button>
+                                </div>
+                                <div className="p-5 space-y-4">
+                                    <div>
+                                        <div className="text-[10px] font-mono text-zinc-500 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
+                                        <input
+                                            type="password"
+                                            value={remoteToken}
+                                            onChange={(e) => setRemoteToken(e.target.value)}
+                                            placeholder="github_pat_..."
+                                            className="w-full bg-zinc-950 border border-zinc-700 text-[12px] font-mono rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500 transition-all placeholder:text-zinc-700"
+                                        />
+                                        <div className="text-[10px] text-zinc-600 mt-1.5 leading-relaxed">Stored only in this browser (localStorage). Scope it to the Nexus repo with Actions read/write. Revoke it anytime on GitHub.</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-[10px] font-mono text-zinc-500 mb-1.5 tracking-wider">DIRECTIVE</div>
+                                        <textarea
+                                            value={remoteDirective}
+                                            onChange={(e) => setRemoteDirective(e.target.value)}
+                                            rows="3"
+                                            placeholder="Generate an interactive operations dashboard..."
+                                            className="w-full bg-zinc-950 border border-zinc-700 text-[12px] rounded-lg px-3 py-2.5 focus:outline-none focus:border-indigo-500 transition-all placeholder:text-zinc-700 resize-none"
+                                        ></textarea>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={handleRemoteDispatch}
+                                            disabled={remoteBusy || !remoteToken.trim() || !remoteDirective.trim()}
+                                            className="text-[11px] font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-md tracking-wider transition-all glow-active disabled:opacity-40 disabled:glow-none"
+                                        >
+                                            {remoteBusy ? 'ENGAGED...' : 'DISPATCH DIRECTIVE'}
+                                        </button>
+                                        <span className="text-[11px] font-mono text-zinc-500">{githubRepo()}</span>
+                                    </div>
+                                    {remoteStatus && (
+                                        <div className={`text-[11px] font-mono px-3 py-2 rounded-md border ${remoteStatus.startsWith('ERROR') ? 'border-red-500/40 text-red-300' : 'border-indigo-500/30 text-indigo-300'}`}>
+                                            {remoteStatus}
+                                        </div>
+                                    )}
+                                    <div className="flex gap-4 text-[10px] font-mono text-zinc-600 pt-1">
+                                        <a href={actionsUrl()} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">RUN LOG</a>
+                                        <a href={'https://idkwhattonametsbro.github.io/Nexus/output/latest_app.html'} target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">LATEST APP</a>
+                                        <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300">CREATE TOKEN</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }

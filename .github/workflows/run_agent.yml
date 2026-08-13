@@ -11,6 +11,8 @@ on:
         description: 'Execution context (full | code | research_only | fast)'
         required: true
         default: 'full'
+  repository_dispatch:
+    types: [nexus-task]
 
 concurrency:
   group: nexus-agent-pipeline
@@ -44,7 +46,14 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
         run: |
-          python src/agent.py --prompt "${{ github.event.inputs.prompt }}" --mode "${{ github.event.inputs.mode }}"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            PROMPT='${{ github.event.client_payload.prompt }}'
+            MODE='${{ github.event.client_payload.mode || 'full' }}'
+          else
+            PROMPT='${{ github.event.inputs.prompt }}'
+            MODE='${{ github.event.inputs.mode }}'
+          fi
+          python src/agent.py --prompt "$PROMPT" --mode "$MODE"
 
       - name: Upload Execution Artifacts
         uses: actions/upload-artifact@v4
