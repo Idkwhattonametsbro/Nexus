@@ -190,6 +190,26 @@ class TestAgentFlow(unittest.TestCase):
         os.environ.pop("OUTPUT_DIR", None)
         shutil.rmtree(self._tmpout, ignore_errors=True)
 
+    def test_chat_mode_conversational(self):
+        reply = "Hey! I can build you a habit tracker, a dashboard, or anything single-file. What should we make?"
+        with mock.patch.object(router.ModelRouter, "call_llm", return_value=reply):
+            NexusAgent().process_task("hey what can you do", mode="chat")
+        reports = glob.glob(os.path.join(self._out, "report_*.md"))
+        self.assertTrue(reports)
+        with open(reports[0], "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("hey what can you do", content)
+        self.assertIn("Hey!", content)
+        # No HTML artifact expected for a conversational reply
+        self.assertEqual(glob.glob(os.path.join(self._out, "app_*.html")), [])
+
+    def test_chat_mode_build_produces_artifact(self):
+        reply = 'Sure! Here is your tracker:\n```html\n<div class="app">Habit Tracker</div>\n```'
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[reply, "NO_CHANGE", "lesson"]):
+            NexusAgent().process_task("build me a habit tracker", mode="chat")
+        apps = glob.glob(os.path.join(self._out, "app_*.html"))
+        self.assertTrue(apps)
+
     def test_full_flow_with_mock_llm(self):
         fake = 'Here is the component:\n```html\n<div class="p-4 text-white">Nexus Dashboard</div>\n```'
         with mock.patch.object(router.ModelRouter, "call_llm", return_value=fake):

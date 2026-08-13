@@ -46,7 +46,11 @@
         .glow-active { box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.30), 0 0 16px rgba(249, 115, 22, 0.20); }
         #particle-canvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
         .app-layer { position: relative; z-index: 10; }
-        .glass { background: rgba(253, 252, 250, 0.85); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        .glass { background: rgba(253, 252, 250, 0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        /* Prevent iOS Safari auto-zoom on focus (which breaks the top bar layout) */
+        @media (max-width: 639px) {
+            input, select, textarea { font-size: 16px !important; }
+        }
     </style>
 </head>
 <body>
@@ -58,13 +62,6 @@
         const PAGES_ROOT = 'https://idkwhattonametsbro.github.io/Nexus';
         const ACTIONS_URL = 'https://github.com/' + REPO + '/actions/workflows/run_agent.yml';
         const API = 'https://api.github.com/repos/' + REPO;
-
-        const MODES = [
-            { id: 'autonomous', label: 'AUTONOMOUS' },
-            { id: 'code', label: 'CODE' },
-            { id: 'research', label: 'RESEARCH' },
-            { id: 'fast', label: 'FAST' },
-        ];
 
         const QUICK_TASKS = [
             'Build me a habit tracker with streaks',
@@ -203,7 +200,6 @@
             const [chatInput, setChatInput] = useState('');
             const [messages, setMessages] = useState([]);
             const [busy, setBusy] = useState(false);
-            const [mode, setMode] = useState('autonomous');
             const [providerTag, setProviderTag] = useState('--');
             const [expandedThought, setExpandedThought] = useState(null);
             const [memoryData, setMemoryData] = useState(null);
@@ -223,7 +219,6 @@
             const [remoteBusy, setRemoteBusy] = useState(false);
             const [remoteStatus, setRemoteStatus] = useState('');
             const [openFile, setOpenFile] = useState(null);
-            const [showStream, setShowStream] = useState(false);
             const editorRef = useRef(null);
             const chatScrollRef = useRef(null);
             const messagesRef = useRef(messages);
@@ -235,11 +230,13 @@
             /* ---- boot ---- */
             useEffect(() => {
                 const boot = [];
-                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Brain engine online.', ts: stamp() });
+                boot.push({ id: uid(), role: 'system', text: 'Nexus Agent initialized. Background brain online.', ts: stamp() });
                 if (brainConfigured()) {
                     boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus. I plan, build, review, fix and deliver working apps right here in this chat. Ask me to build something, or tap a quick task below.', ts: stamp() });
+                } else if (remoteToken.trim()) {
+                    boot.push({ id: uid(), role: 'agent', text: 'Hey - I am Nexus, running through the background pipeline with your GitHub secrets. I plan, build, review, fix and deliver working apps right here in this chat. Ask me to build something, or tap a quick task below.', ts: stamp() });
                 } else {
-                    boot.push({ id: uid(), kind: 'card', title: 'BRAIN SETUP REQUIRED', tone: 'warn', lines: ['To think and build, Nexus needs an LLM key in THIS browser (stored locally only).', 'Paste your Groq key (free) in SETTINGS, or use an OpenRouter key.', 'Your GitHub secrets are never exposed to the browser.'], ts: stamp() });
+                    boot.push({ id: uid(), kind: 'card', title: 'ONE-TIME SETUP', tone: 'info', lines: ['Nexus thinks in the background using your GitHub secrets - API keys never enter this chat.', 'Tap PIPELINE and paste your GitHub token once (fine-grained, Actions read/write).', 'Stored only in this browser. No LLM keys required.'], ts: stamp() });
                 }
                 setMessages(boot);
                 try { setRemoteToken(localStorage.getItem('nexus_remote_token') || '') } catch (e) {}
@@ -384,7 +381,96 @@
                 } catch (e) {}
             };
 
+            /* Pipeline brain: uses the GitHub Actions secrets in the background.
+               The chat dispatches a run and streams the result back. No keys in the browser. */
+            const fetchRunLog = async (runId, token) => {
+                try {
+                    const j = await fetch(API + '/actions/runs/' + runId + '/jobs', { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' } });
+                    const jd = await j.json();
+                    const job = jd.jobs && jd.jobs[0];
+                    if (!job) return [];
+                    const lg = await fetch(API + '/actions/jobs/' + job.id + '/logs', { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' } });
+                    const txt = await lg.text();
+                    return txt.split('\n').filter(l => l.includes('[System]') || l.includes('[Route]') || l.includes('[Warning]')).map(l => l.replace(/^.*?Z /, '').replace(/^\d{4}-\d{2}-\d{2}T[\d:.]*Z /, '').trim()).filter(Boolean).slice(-10);
+                } catch (e) { return []; }
+            };
+
+            const extractReportReply = (txt) => {
+                const idx = txt.indexOf('\n---\n');
+                const body = idx >= 0 ? txt.slice(idx + 5) : txt;
+                return body.trim();
+            };
+
+            const pipelineTurn = async (userText) => {
+                const token = remoteToken.trim();
+                if (!token) {
+                    pushMessage({ id: uid(), kind: 'card', title: 'ONE-TIME SETUP NEEDED', tone: 'warn', lines: ['Nexus thinks through the background pipeline so your API keys stay in GitHub secrets.', 'Open PIPELINE and paste your GitHub token once (fine-grained, Actions read/write). It is stored only in this browser.', 'No API keys are ever entered in the chat.'], ts: stamp() });
+                    setShowRemote(true);
+                    return;
+                }
+                setBusy(true);
+                setProviderTag('PIPELINE');
+                const thoughtId = uid();
+                const started = Date.now();
+                pushMessage({ id: thoughtId, kind: 'thought', secs: '...', lines: ['Dispatching to background pipeline (uses your GitHub secrets)...'], ts: stamp() });
+                try {
+                    const res = await fetch(API + '/actions/workflows/run_agent.yml/dispatches', {
+                        method: 'POST',
+                        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ref: 'main', inputs: { prompt: userText, mode } }),
+                    });
+                    if (!res.ok) throw new Error('Dispatch HTTP ' + res.status);
+                    let run = null;
+                    for (let i = 0; i < 45; i++) {
+                        await new Promise(r => setTimeout(r, 6000));
+                        const rr = await fetch(API + '/actions/runs?event=workflow_dispatch&per_page=1', { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' } });
+                        const dd = await rr.json();
+                        if (dd.workflow_runs && dd.workflow_runs.length) {
+                            run = dd.workflow_runs[0];
+                            const elapsed = Math.round((Date.now() - started) / 1000);
+                            updateMessage(thoughtId, { lines: ['Pipeline run #' + run.run_number + ' in progress (' + elapsed + 's)...', 'Agent is thinking with your GitHub secrets.', 'This message will update when the run completes.'] });
+                            if (run.status !== 'queued' && run.status !== 'in_progress') break;
+                        }
+                    }
+                    if (!run) throw new Error('Timed out waiting for the pipeline run.');
+                    const secs = ((Date.now() - started) / 1000).toFixed(1);
+                    if (run.conclusion !== 'success') {
+                        updateMessage(thoughtId, { secs, lines: ['Pipeline run #' + run.run_number + ' ' + (run.conclusion || 'failed') + '.', 'Check the run log for details.'] });
+                        pushMessage({ id: uid(), kind: 'card', title: 'RUN ' + (run.conclusion || 'FAILED').toUpperCase(), tone: 'error', lines: ['Run #' + run.run_number + ' did not complete successfully. Open the run log to inspect.', run.html_url], ts: stamp() });
+                        return;
+                    }
+                    const logLines = await fetchRunLog(run.id, token);
+                    updateMessage(thoughtId, { secs, lines: logLines.length ? logLines : ['Pipeline run #' + run.run_number + ' completed successfully.'] });
+                    setProviderTag('PIPELINE');
+                    const rep = await fetch(PAGES_ROOT + '/output/latest_report.md', { cache: 'no-store' });
+                    if (rep.ok) {
+                        const reply = extractReportReply(await rep.text());
+                        pushMessage({ id: uid(), role: 'agent', text: reply, ts: stamp() });
+                    }
+                    const man = await fetch(PAGES_ROOT + '/output/latest_manifest.json', { cache: 'no-store' });
+                    if (man.ok) {
+                        const m = await man.json();
+                        const art = await fetch(PAGES_ROOT + '/output/latest_app.html', { cache: 'no-store' });
+                        if (art.ok) {
+                            const content = await art.text();
+                            if (content && content.length > 20) {
+                                pushMessage({ id: uid(), kind: 'artifact', filename: 'app_' + (m.timestamp || Date.now()) + '.html', lang: 'HTML', content, summary: m.provider + ' · ' + m.model + ' · ' + m.latency_ms + 'ms' + (m.review && m.review.applied ? ' · REVIEWED' : ''), iterations: [1], review: null, ts: stamp() });
+                                setPreviewHtml(content);
+                            }
+                        }
+                    }
+                    setMemoryEpoch(e => e + 1);
+                } catch (err) {
+                    updateMessage(thoughtId, { secs: '0.0', lines: ['Pipeline call failed.'] });
+                    pushMessage({ id: uid(), kind: 'card', title: 'PIPELINE ERROR', tone: 'error', lines: [String(err.message || err)], ts: stamp() });
+                } finally {
+                    setBusy(false);
+                    setProviderTag('--');
+                }
+            };
+
             const agentTurn = async (userText) => {
+                if (!brainConfigured()) { await pipelineTurn(userText); return; }
                 setBusy(true);
                 const t0 = performance.now();
                 const thoughtId = uid();
@@ -425,11 +511,6 @@
             const handleSubmit = (e) => {
                 e.preventDefault();
                 if (!chatInput.trim() || busy) return;
-                if (!brainConfigured()) {
-                    setShowSettings(true);
-                    pushMessage({ id: uid(), kind: 'card', title: 'BRAIN NOT CONFIGURED', tone: 'warn', lines: ['Open SETTINGS and paste an LLM API key to enable the agent. Groq is free.'], ts: stamp() });
-                    return;
-                }
                 const text = chatInput.trim();
                 setChatInput('');
                 pushMessage({ id: uid(), role: 'user', text, ts: stamp() });
@@ -490,16 +571,16 @@
                     const open = expandedThought === m.id;
                     return (
                         <div className="animate-fadeup">
-                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="flex items-center gap-2 text-[11px] font-mono text-ember-600/90 hover:text-ember-700 transition-colors group">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" /><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                            <button onClick={() => setExpandedThought(open ? null : m.id)} className="flex items-center gap-2 text-[11px] font-mono text-stone-500 hover:text-ember-600 transition-colors group">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="text-ember-500"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" /><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
                                 Thought for {m.secs}s
-                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={'transition-transform ' + (open ? 'rotate-180' : '') + ' text-ember-400'}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                                <span className="text-[9px] text-ember-400/70 group-hover:text-ember-600">{open ? 'HIDE' : 'VIEW REASONING'}</span>
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" className={'transition-transform ' + (open ? 'rotate-180' : '') + ' text-stone-400'}><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                <span className="text-[9px] text-stone-400 group-hover:text-ember-600">{open ? 'HIDE' : 'VIEW REASONING'}</span>
                             </button>
                             {open && (
-                                <div className="mt-1.5 ml-1 rounded-xl border border-ember-200 bg-ember-50/70 px-3.5 py-3 space-y-1.5">
-                                    <div className="text-[8px] font-mono tracking-[0.18em] text-ember-500">REASONING TRACE</div>
-                                    {(m.lines || []).map((l, i) => <div key={i} className="text-[11px] font-mono leading-relaxed text-ember-900/70">▸ {l}</div>)}
+                                <div className="mt-1.5 ml-1 rounded-xl border border-cream-300 bg-white px-3.5 py-3 space-y-1.5">
+                                    <div className="text-[8px] font-mono tracking-[0.18em] text-stone-400">REASONING TRACE</div>
+                                    {(m.lines || []).map((l, i) => <div key={i} className="text-[11px] font-mono leading-relaxed text-stone-600">▸ {l}</div>)}
                                 </div>
                             )}
                         </div>
@@ -520,7 +601,7 @@
                     const toneCls = m.tone === 'ok' ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
                         : m.tone === 'warn' ? 'border-amber-200 bg-amber-50/70 text-amber-800'
                         : m.tone === 'error' ? 'border-red-200 bg-red-50/70 text-red-700'
-                        : 'border-ember-200 bg-ember-50/70 text-ember-800';
+                        : 'border-cream-300 bg-white text-stone-600';
                     return (
                         <div className={'animate-fadeup rounded-xl border px-3.5 py-2.5 ' + toneCls}>
                             <div className="text-[8px] font-mono tracking-[0.18em] opacity-70 mb-1">{m.title}</div>
@@ -554,8 +635,8 @@
                 if (m.role === 'user') {
                     return (
                         <div className="flex justify-end animate-fadeup">
-                            <div className="max-w-[85%] bg-ember-50 border border-ember-200/70 rounded-2xl rounded-br-md px-3.5 py-2.5 shadow-soft">
-                                <div className="text-[9px] font-mono text-ember-500 mb-1 tracking-wider">YOU · {m.ts}</div>
+                            <div className="max-w-[85%] bg-white border border-cream-300 rounded-2xl rounded-br-md px-4 py-3 shadow-soft">
+                                <div className="text-[9px] font-mono text-stone-400 mb-1 tracking-wider">YOU · {m.ts}</div>
                                 <div className="text-[13px] leading-relaxed text-stone-700">{m.text}</div>
                             </div>
                         </div>
@@ -570,17 +651,17 @@
             };
 
             const statusPill = busy
-                ? { label: 'THINKING', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
+                ? { label: brainConfigured() ? 'THINKING' : 'PIPELINE', cls: 'text-ember-700 border-ember-300 bg-ember-50' }
                 : { label: 'STANDBY', cls: 'text-stone-500 border-cream-400 bg-white' };
 
             return (
-                <div className="h-screen w-full overflow-hidden">
+                <div className="h-screen w-full overflow-hidden" style={{ height: '100dvh' }}>
                     <ParticleCanvas />
                     <div className="app-layer flex flex-col h-full">
 
                         {/* ===== TOP BAR ===== */}
                         <header className="glass border-b border-cream-300 shrink-0 z-30">
-                            <div className="flex items-center gap-2.5 px-4 h-13 lg:h-14">
+                            <div className="flex items-center gap-2.5 px-4 h-14">
                                 <div className="w-8 h-8 rounded-xl brand-gradient shadow-soft flex items-center justify-center shrink-0">
                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /><path d="M12 22V12M3 7l9 5 9-5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" opacity="0.6" /></svg>
                                 </div>
@@ -598,8 +679,8 @@
                                     {statusPill.label}
                                 </div>
 
-                                <button onClick={() => setShowSettings(true)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all" title="Brain settings">
-                                    {brainConfigured() ? 'BRAIN' : 'SETUP'}
+                                <button onClick={() => setShowSettings(true)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all" title="Optional fast brain">
+                                    BRAIN
                                 </button>
                                 <button onClick={exportChat} className="hidden md:block text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all">EXPORT</button>
                                 <button onClick={() => setShowRemote(true)} className="hidden md:block text-[10px] font-mono btn-primary text-white px-3.5 py-2 rounded-lg tracking-wider transition-all shadow-soft">PIPELINE</button>
@@ -662,27 +743,27 @@
 
                                 {/* CHAT */}
                                 <div className={'flex-1 min-h-0 flex flex-col ' + (activeView === 'chat' ? 'flex' : 'hidden md:flex')}>
-                                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-3 lg:px-6 py-4 space-y-3 max-w-3xl w-full mx-auto">
+                                    <div ref={chatScrollRef} className="flex-1 overflow-y-auto custom-scrollbar px-4 lg:px-8 py-5 space-y-4 max-w-3xl w-full mx-auto">
                                         {messages.map(renderMessage)}
                                         {busy && (
-                                            <div className="flex items-center gap-2 text-[10px] font-mono text-ember-600 animate-pulseDot">
+                                            <div className="flex items-center gap-2 text-[10px] font-mono text-stone-500 animate-pulseDot">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-ember-500"></span>
-                                                NEXUS IS WORKING · {providerTag}
+                                                {brainConfigured() ? 'NEXUS IS THINKING' : 'PIPELINE RUNNING IN BACKGROUND'} · {providerTag}
                                             </div>
                                         )}
                                         {!busy && messages.filter(m => m.role === 'user').length < 1 && (
                                             <div className="flex flex-wrap gap-2 pt-2">
                                                 {QUICK_TASKS.map(t => (
-                                                    <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-full transition-all">{t}</button>
+                                                    <button key={t} onClick={() => setChatInput(t)} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-500 hover:text-ember-600 hover:border-ember-300 px-3.5 py-2 rounded-full transition-all">{t}</button>
                                                 ))}
                                             </div>
                                         )}
                                     </div>
-                                    <div id="nexus-composer" className="shrink-0 px-2 lg:px-6 pb-3 lg:pb-4 pt-2 max-w-3xl w-full mx-auto">
-                                        <div className="rounded-2xl border border-cream-300 bg-white/95 backdrop-blur shadow-lift p-2.5">
-                                            <div className="flex items-center justify-between px-1 pb-1.5">
+                                    <div id="nexus-composer" className="shrink-0 px-3 lg:px-8 pb-6 lg:pb-8 pt-2 max-w-3xl w-full mx-auto" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+                                        <div className="rounded-3xl border border-cream-300 bg-white/95 backdrop-blur shadow-lift p-3">
+                                            <div className="flex items-center justify-between px-1.5 pb-2">
                                                 <span className="text-[8px] font-mono tracking-[0.18em] text-stone-400">MESSAGE NEXUS</span>
-                                                <span className="text-[8px] font-mono text-ember-600">{brainConfigured() ? 'BRAIN ONLINE' : 'SETUP REQUIRED'}</span>
+                                                <span className="text-[8px] font-mono text-stone-400">{brainConfigured() ? 'FAST BRAIN' : 'BACKGROUND BRAIN · GITHUB SECRETS'}</span>
                                             </div>
                                             <form onSubmit={handleSubmit} className="relative">
                                                 <input
@@ -692,18 +773,18 @@
                                                     onFocus={() => { const c = document.getElementById('nexus-composer'); if (c) setTimeout(() => c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 120); }}
                                                     placeholder="Ask Nexus to build something, or just chat..."
                                                     disabled={busy}
-                                                    className={'w-full bg-cream-50 border border-cream-400 text-[14px] rounded-xl px-4 py-3.5 pr-14 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ' + (busy ? 'glow-active border-ember-300' : '')}
+                                                    className={'w-full bg-cream-50 border border-cream-400 text-[14px] rounded-2xl px-4 py-4 pr-14 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400 disabled:opacity-60 ' + (busy ? 'glow-active border-ember-300' : '')}
                                                 />
                                                 <button
                                                     type="submit"
                                                     disabled={busy || !chatInput.trim()}
-                                                    className={'absolute right-1.5 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl transition-all ' + (busy || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft')}
+                                                    className={'absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-xl transition-all ' + (busy || !chatInput.trim() ? 'text-stone-300 bg-cream-100' : 'text-white btn-primary shadow-soft')}
                                                 >
                                                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
                                                 </button>
                                             </form>
                                         </div>
-                                        <div className="mt-1.5 flex items-center justify-between text-[8px] font-mono text-stone-400">
+                                        <div className="mt-2 flex items-center justify-between text-[8px] font-mono text-stone-400">
                                             <span>ENTER TO SEND · TAP THOUGHTS TO EXPAND</span>
                                             <span className="hidden sm:block">REVIEW LOOP · DOWNLOADS · GITHUB IN BACKGROUND</span>
                                         </div>
@@ -812,12 +893,12 @@
                         {showSettings && (
                             <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
                                 <div className="w-full max-w-[480px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
-                                    <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
-                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">BRAIN SETTINGS</span>
+                                    <div className="flex items-center justify-between px-5 h-14 border-b border-cream-200">
+                                        <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">FAST BRAIN (OPTIONAL)</span>
                                         <button onClick={() => setShowSettings(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
                                     <div className="p-5 space-y-4">
-                                        <div className="text-[10px] text-stone-400 leading-relaxed">Nexus calls the LLM directly from this browser. Your key is stored ONLY in this browser (localStorage) and never sent to GitHub.</div>
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">By default Nexus thinks in the background through your GitHub secrets - nothing to enter here. Add a key here only if you want <b>instant</b> in-browser replies (no pipeline wait). Stored only in this browser.</div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">PROVIDER</div>
                                             <select value={brainCfg.provider || 'groq'} onChange={e => setBrainCfg({ ...brainCfg, provider: e.target.value, model: '' })} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400">
@@ -847,12 +928,12 @@
                         {showRemote && (
                             <div className="absolute inset-0 z-50 flex items-center justify-center bg-stone-900/30 backdrop-blur-sm p-4">
                                 <div className="w-full max-w-[520px] rounded-3xl bg-white shadow-lift border border-cream-300 overflow-hidden">
-                                    <div className="flex items-center justify-between px-5 h-13 border-b border-cream-200">
+                                    <div className="flex items-center justify-between px-5 h-14 border-b border-cream-200">
                                         <span className="text-[11px] font-semibold tracking-[0.18em] text-stone-700">BACKGROUND PIPELINE</span>
                                         <button onClick={() => setShowRemote(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
                                     <div className="p-5 space-y-4">
-                                        <div className="text-[10px] text-stone-400 leading-relaxed">Optional: dispatch the GitHub Actions pipeline for heavy tasks and persistence. Everything else - chat, builds, reviews, downloads - works right here without it.</div>
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">Nexus thinks here using your <b>GitHub secrets</b> - the API keys you already added never leave GitHub and never appear in this chat. Paste your GitHub token once so the chat can dispatch runs. It is stored only in this browser.</div>
                                         <div>
                                             <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">GITHUB TOKEN (FINE-GRAINED, ACTIONS READ/WRITE)</div>
                                             <input type="password" value={remoteToken} onChange={e => setRemoteToken(e.target.value)} placeholder="github_pat_..." className="w-full bg-cream-50 border border-cream-400 text-[12px] font-mono rounded-xl px-3.5 py-3 focus:outline-none focus:border-ember-400 transition-all placeholder:text-stone-400" />

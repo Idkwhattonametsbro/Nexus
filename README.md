@@ -164,15 +164,21 @@ No paid API credit required. The router falls back automatically:
 
 ## Chat-Native Agent (V6)
 
-The workspace is now a **conversational agent**, not a dashboard. The chat is the
-product; GitHub is optional background plumbing.
+The workspace is a **conversational agent**. The chat is the product; GitHub is
+background plumbing that holds the secrets.
 
-- **Browser-native brain**: the UI calls the LLM provider directly from your
-  browser (Groq / OpenRouter / DeepSeek), key stored in localStorage only.
-- **Conversational**: greetings and questions get real replies; ambiguous build
-  requests trigger clarifying questions with tap-to-answer options.
+- **Background brain (default)**: Nexus thinks through the GitHub Actions
+  pipeline using your repository secrets - API keys never enter the chat or
+  the browser. You only paste a GitHub token once (PIPELINE modal, Actions
+  read/write) so the chat can dispatch runs. Results stream back into the
+  chat with the pipeline's own reasoning trace.
+- **Fast brain (optional)**: add an LLM key in BRAIN for instant in-browser
+  replies (Groq / OpenRouter / DeepSeek), stored in localStorage only.
+- **Conversational**: greetings and questions get real replies; ambiguous
+  build requests trigger clarifying questions with tap-to-answer options.
 - **Reasoning transparency**: every turn shows a "Thought for Xs" pill that
-  expands into the full reasoning trace.
+  expands into the full reasoning trace (real pipeline log lines in background
+  mode).
 - **Build loop**: generate -> review (second model critiques) -> fix -> iterate
   (up to 3 rounds) -> deliver. Every artifact is a file card with syntax
   highlighting, iteration count, inline PREVIEW, DOWNLOAD, and optional
@@ -181,8 +187,8 @@ product; GitHub is optional background plumbing.
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
-Setup: open BRAIN/SETTINGS, paste a Groq key (free) or OpenRouter key. That is
-the only step - no server, no deployment, no GitHub required to use the agent.
+Zero browser keys required: the chat dispatches `chat`-mode pipeline runs that
+use the secrets you already configured in GitHub.
 
 ## Design Constraints
 

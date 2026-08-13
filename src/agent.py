@@ -23,7 +23,7 @@ ARTIFACT_PATTERNS = [
     ("python", "module", r"```python\s*([\s\S]*?)```"),
 ]
 
-VALID_MODES = ("full", "code", "research_only", "fast")
+VALID_MODES = ("full", "code", "research_only", "fast", "chat")
 
 
 def run_context() -> str:
@@ -65,18 +65,30 @@ class NexusAgent:
 
         context = run_context()
         complex_task = any(s in prompt.lower() for s in ("repo", "repository", "project", "architecture", "plan"))
-        system_prompt = (
-            "You are Nexus, an elite autonomous software architecture system. "
-            "Output functional, pristine code blocks without commentary unless requested. "
-            f"Adhere strictly to these parameters learned from prior executions:\n{past_memory}"
-        )
-        if complex_task:
-            system_prompt += (
-                "\n\nThis is a complex multi-step directive. Begin your response with a concise "
-                "'## Plan' section listing the architecture steps, then state any key assumptions, "
-                "then deliver the complete artifacts in fenced code blocks. Never claim an action "
-                "you did not perform."
+        if mode == "chat":
+            system_prompt = (
+                "You are Nexus, an autonomous agent conversing with the operator inside a web workspace. "
+                "Be warm, concise and direct. If the operator asks you to build something, respond with a "
+                "short confirmation and then a COMPLETE standalone single-file app in one fenced ```html "
+                "block (all CSS/JS inline, light premium design: creamy white, soft warm borders, orange "
+                "accents) unless the operator specified another style. If the request is ambiguous, ask "
+                "2-4 short clarifying questions in plain text. If no build is requested, reply "
+                "conversationally in plain text. "
+                f"Adhere strictly to these parameters learned from prior executions:\n{past_memory}"
             )
+        else:
+            system_prompt = (
+                "You are Nexus, an elite autonomous software architecture system. "
+                "Output functional, pristine code blocks without commentary unless requested. "
+                f"Adhere strictly to these parameters learned from prior executions:\n{past_memory}"
+            )
+            if complex_task:
+                system_prompt += (
+                    "\n\nThis is a complex multi-step directive. Begin your response with a concise "
+                    "'## Plan' section listing the architecture steps, then state any key assumptions, "
+                    "then deliver the complete artifacts in fenced code blocks. Never claim an action "
+                    "you did not perform."
+                )
         if context:
             system_prompt += f"\n\n[Execution Context]\n{context}"
 
@@ -87,6 +99,9 @@ class NexusAgent:
         task_type = "code" if mode == "code" or "html" in prompt.lower() else "general"
         if mode == "fast":
             task_type = "fast"
+        if mode == "chat":
+            build_signals = ("build", "make", "create", "generate", "html", "app", "page", "dashboard", "tool", "website", "landing")
+            task_type = "code" if any(s in prompt.lower() for s in build_signals) else "general"
 
         print(f"[System] Routing request to optimal multi-agent swarm (task type: {task_type})...")
         response_text = ModelRouter.call_llm(
