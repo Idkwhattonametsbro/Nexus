@@ -1,0 +1,206 @@
+import os
+import sys
+import json
+import time
+import glob
+import tempfile
+import unittest
+from unittest import mock
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(REPO_ROOT, "src")
+sys.path.insert(0, REPO_ROOT)
+sys.path.insert(0, SRC_DIR)
+
+# NOTE: importing as top-level modules (router, agent, reflection) keeps a single
+# module identity shared with the internal `from router import ...` imports.
+import router
+import reflection
+import agent as agent_module
+from tools.search import ResearchTool
+from reflection import SelfReflection
+from agent import NexusAgent
+
+
+def clear_env():
+    for k in ("DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY"):
+        os.environ.pop(k, None)
+
+
+class TestRouting(unittest.TestCase):
+    def setUp(self):
+        clear_env()
+
+    def test_no_keys_raises_clear_error(self):
+        with self.assertRaises(ValueError) as ctx:
+            router.ModelRouter.route_request("build a dashboard")
+        self.assertIn("No valid API keys", str(ctx.exception))
+
+    def test_code_routes_to_deepseek(self):
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+        r = router.ModelRouter.route_request("write html for a dashboard", "general")
+        self.assertEqual(r["provider"], "DeepSeek")
+        self.assertEqual(r["model"], "deepseek-chat")
+
+    def test_fast_routes_to_groq(self):
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+        os.environ["OPENROUTER_API_KEY"] = "or-fake"
+        r = router.ModelRouter.route_request("summarize", "fast")
+        self.assertEqual(r["provider"], "Groq")
+
+    def test_general_routes_to_openrouter(self):
+        os.environ["OPENROUTER_API_KEY"] = "or-fake"
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        r = router.ModelRouter.route_request("analyze this problem", "general")
+        self.assertEqual(r["provider"], "OpenRouter")
+
+    def test_call_llm_payload_shape(self):
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+        with mock.patch("router.requests.post") as m:
+            m.return_value.status_code = 200
+            m.return_value.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+            out = router.ModelRouter.call_llm("hello", task_type="fast")
+        self.assertEqual(out, "ok")
+        payload = m.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], "llama-3.3-70b-versatile")
+        self.assertEqual(len(payload["messages"]), 2)
+
+    def test_fallback_chain_when_primary_fails(self):
+        os.environ["DEEPSEEK_API_KEY"] = "dsk-fake"
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+
+        def fake_post(url, **kwargs):
+            if "deepseek" in url:
+                return mock.Mock(status_code=503)
+            return mock.Mock(status_code=200, json=lambda: {"choices": [{"message": {"content": "recovered"}}]})
+
+        with mock.patch("router.time.sleep"), mock.patch("router.requests.post", side_effect=fake_post):
+            out = router.ModelRouter.call_llm("write html", task_type="code")
+        self.assertEqual(out, "recovered")
+        self.assertEqual(router.ModelRouter.last_route["provider"], "Groq")
+
+    def test_retry_then_success(self):
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+        calls = {"n": 0}
+
+        def flaky(url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return mock.Mock(status_code=429)
+            return mock.Mock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]})
+
+        with mock.patch("router.time.sleep"), mock.patch("router.requests.post", side_effect=flaky):
+            out = router.ModelRouter.call_llm("hi", task_type="fast")
+        self.assertEqual(out, "ok")
+        self.assertEqual(calls["n"], 2)
+
+    def test_all_providers_exhausted_raises(self):
+        os.environ["GROQ_API_KEY"] = "groq-fake"
+        with mock.patch("router.time.sleep"), mock.patch(
+            "router.requests.post", return_value=mock.Mock(status_code=500)
+        ):
+            with self.assertRaises(RuntimeError):
+                router.ModelRouter.call_llm("hi", task_type="fast")
+
+
+class TestReflection(unittest.TestCase):
+    # Isolate memory writes in a temp file so tests never touch the real store.
+    def setUp(self):
+        clear_env()
+        fd, self.tmp = tempfile.mkstemp(prefix="nexus_lessons_", suffix=".json")
+        os.close(fd)
+        self._orig = reflection.LESSONS_FILE
+        reflection.LESSONS_FILE = self.tmp
+        with open(self.tmp, "w", encoding="utf-8") as f:
+            json.dump(reflection.DEFAULT_STATE, f)
+
+    def tearDown(self):
+        reflection.LESSONS_FILE = self._orig
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def test_stats_persist_even_if_reflection_fails(self):
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=RuntimeError("boom")):
+            lesson = SelfReflection.record_execution("task", "output", success=True)
+        self.assertIsNone(lesson)
+        with open(reflection.LESSONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data["total_runs"], 1)
+        self.assertEqual(data["successful_runs"], 1)
+
+    def test_deduplication(self):
+        with mock.patch.object(router.ModelRouter, "call_llm", return_value="Always output strict dark mode."):
+            SelfReflection.record_execution("task1", "out", success=True)
+            SelfReflection.record_execution("task2", "out", success=True)
+        with open(reflection.LESSONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(len(data["lessons"]), 1)
+        self.assertEqual(data["total_runs"], 2)
+
+    def test_load_memory_empty(self):
+        self.assertIn("No previous lessons", SelfReflection.load_memory())
+
+
+class TestAgentFlow(unittest.TestCase):
+    def setUp(self):
+        clear_env()
+        self._out = os.path.join(REPO_ROOT, "output")
+        for f in glob.glob(os.path.join(self._out, "*")):
+            os.remove(f)
+        # Isolate memory writes
+        fd, self.tmp = tempfile.mkstemp(prefix="nexus_lessons_", suffix=".json")
+        os.close(fd)
+        self._orig = reflection.LESSONS_FILE
+        reflection.LESSONS_FILE = self.tmp
+        SelfReflection.ensure_storage()
+
+    def tearDown(self):
+        reflection.LESSONS_FILE = self._orig
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def test_full_flow_with_mock_llm(self):
+        fake = 'Here is the component:\n```html\n<div class="p-4 text-white">Nexus Dashboard</div>\n```'
+        with mock.patch.object(router.ModelRouter, "call_llm", return_value=fake):
+            agent = NexusAgent()
+            agent.process_task("Build a dark dashboard", mode="full")
+
+        reports = glob.glob(os.path.join(self._out, "report_*.md"))
+        apps = glob.glob(os.path.join(self._out, "app_*.html"))
+        manifests = glob.glob(os.path.join(self._out, "manifest_*.json"))
+        self.assertTrue(reports)
+        self.assertTrue(apps)
+        self.assertTrue(manifests)
+
+        with open(manifests[0], "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest["provider"], "unknown")  # mocked, no real route
+        self.assertIn("app_", manifest["artifacts"][0])
+
+        with open(os.path.join(REPO_ROOT, "config", "lessons_learned.json"), "r", encoding="utf-8") as f:
+            mem = json.load(f)
+        self.assertGreaterEqual(mem["total_runs"], 1)
+
+    def test_self_healing_retry_when_no_html(self):
+        first = "Sorry, here is a description only."
+        second = '```html\n<html><body class="bg-black"></body></html>\n```'
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[first, second]):
+            agent = NexusAgent()
+            agent.process_task("Build a landing page", mode="code")
+
+        apps = glob.glob(os.path.join(self._out, "app_*.html"))
+        self.assertTrue(apps)
+        with open(apps[0], "r", encoding="utf-8") as f:
+            self.assertIn("<html", f.read())
+
+
+class TestSearch(unittest.TestCase):
+    def test_disabled_without_key(self):
+        clear_env()
+        out = ResearchTool.search_web("anything")
+        self.assertIn("Search Disabled", out)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
