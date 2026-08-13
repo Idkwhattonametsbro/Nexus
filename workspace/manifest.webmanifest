@@ -1,0 +1,14 @@
+{
+  "name": "Nexus Autonomous Workspace",
+  "short_name": "Nexus",
+  "description": "Autonomous AI agent chat: builds apps, researches, schedules, automates.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#FAF8F4",
+  "theme_color": "#F97316",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

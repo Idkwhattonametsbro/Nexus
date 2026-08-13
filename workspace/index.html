@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Nexus Autonomous Workspace</title>
+    <link rel="manifest" href="./manifest.webmanifest">
+    <meta name="theme-color" content="#FAF8F4">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="./icon.svg">
+    <link rel="icon" type="image/svg+xml" href="./icon.svg">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -56,6 +63,22 @@
 </head>
 <body>
     <div id="root"></div>
+    <script>
+        // PWA: register service worker (offline shell) + capture install prompt
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+        }
+        let deferredInstall = null;
+        window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstall = e; window.dispatchEvent(new CustomEvent('nexus-install-ready')); });
+        window.addEventListener('appinstalled', () => { deferredInstall = null; window.dispatchEvent(new CustomEvent('nexus-installed')); });
+        // Wake lock: keep the screen on while Nexus is working
+        let wakeLockRef = null;
+        window.__nexusWake = {
+            request: async () => { try { if (navigator.wakeLock) wakeLockRef = await navigator.wakeLock.request('screen'); } catch (e) {} },
+            release: () => { try { if (wakeLockRef) wakeLockRef.release(); } catch (e) {} wakeLockRef = null; }
+        };
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && window.__nexusBusy) window.__nexusWake.request(); });
+    </script>
     <script type="text/babel">
         const { useState, useEffect, useRef, useCallback } = React;
 
@@ -376,6 +399,7 @@
             ipinfo: { url: 'https://ipinfo.io/json', desc: 'Your IP geolocation info', params: {} },
             uuid: { url: 'https://www.uuidtools.com/api/generate/v4/count/1', desc: 'Generate a UUID', params: {} },
             stock: { url: 'https://stooq.com/q/l/', desc: 'Stock quote by ticker (e.g. AAPL.US) - no key', params: { symbol: 'AAPL.US' } },
+            youtube_rss: { url: 'https://www.youtube.com/feeds/videos.xml?channel_id=', desc: 'Latest videos from a YouTube channel via RSS (no key needed)', params: { channel_id: 'the channel id (UC...)' } },
             university: { url: 'https://universities.hipolabs.com/search', desc: 'Search universities by country', params: { country: 'name' } },
         };
         async function httpJson(url) {
@@ -417,6 +441,21 @@
             } else if (api === 'university') {
                 url = def.url + '?' + new URLSearchParams({ country: String(p.country || 'Morocco') }).toString();
             } else if (api === 'reddit' || api === 'hn') { /* handled above */ }
+            if (api === 'youtube_rss') {
+                const data = await httpJson(url);
+                const raw = data.raw || JSON.stringify(data);
+                try {
+                    const doc = new DOMParser().parseFromString(raw, 'text/xml');
+                    const entries = Array.from(doc.querySelectorAll('entry')).slice(0, 8);
+                    if (!entries.length) return '[youtube_rss: no videos found for that channel id (check the channel id, it starts with UC)]';
+                    return entries.map(e => {
+                        const t = (e.querySelector('title') || {}).textContent || '';
+                        const p = (e.querySelector('published') || {}).textContent || '';
+                        const l = (e.querySelector('link') || {}).getAttribute ? e.querySelector('link').getAttribute('href') : '';
+                        return '- ' + t + ' · ' + p.slice(0, 10) + (l ? ' (' + l + ')' : '');
+                    }).join('\n');
+                } catch (e) { return '[youtube_rss: could not parse feed]'; }
+            }
             const data = await httpJson(url);
             return JSON.stringify(data).slice(0, 3000);
         }
@@ -475,7 +514,7 @@
             { name: 'mcp_connect', desc: 'Connect a remote MCP server (Model Context Protocol). Provide name + URL of a streamable-HTTP MCP endpoint.', args: { name: 'string', url: 'string', note: 'string' } },
             { name: 'mcp_list', desc: 'List connected MCP servers and their available tools.', args: {} },
             { name: 'mcp_call', desc: 'Call a tool on a connected MCP server. First use mcp_connect and mcp_list.', args: { server: 'string', tool: 'string', args: 'object' } },
-            { name: 'schedule_task', desc: 'Schedule an autonomous task to run later or on an interval (minutes). The agent will execute it automatically when due.', args: { label: 'string', prompt: 'string', interval_minutes: 'number' } },
+            { name: 'schedule_task', desc: 'Schedule a task, reminder, or one-shot timer. Use oneShot=true for a single timer ("set a timer for 10 minutes"). Interval tasks repeat.', args: { label: 'string', prompt: 'string', interval_minutes: 'number', oneShot: 'boolean' } },
             { name: 'list_schedules', desc: 'List all scheduled tasks.', args: {} },
             { name: 'cancel_schedule', desc: 'Cancel a scheduled task by label.', args: { label: 'string' } }
         );
@@ -665,10 +704,12 @@
                 const prompt = String(a.prompt || '').trim();
                 const mins = Math.max(1, Math.min(10080, Number(a.interval_minutes) || 60));
                 if (!prompt) return '[schedule_task: missing prompt]';
-                const sched = { id: uid(), label, prompt, intervalMinutes: mins, enabled: true, nextAt: Date.now() + mins * 60000, kind: 'task', createdAt: Date.now() };
+                const oneShot = !!(a.oneShot) || /timer|remind me in|in \d+ (min|hour|sec)/i.test(prompt + ' ' + label);
+                const kind = oneShot ? 'timer' : 'task';
+                const sched = { id: uid(), label, prompt, intervalMinutes: mins, enabled: true, nextAt: Date.now() + mins * 60000, kind, createdAt: Date.now() };
                 const list = loadSchedules(); list.push(sched); saveSchedules(list);
-                notify('Nexus scheduled task', label + ' scheduled every ' + mins + ' min');
-                return 'Scheduled "' + label + '" every ' + mins + ' min. Next run: ' + new Date(sched.nextAt).toLocaleTimeString();
+                notify('Nexus scheduled', label + (oneShot ? ' in ' + mins + ' min' : ' every ' + mins + ' min'));
+                return (oneShot ? 'Timer set: "' + label + '" fires in ' + mins + ' min (notification + vibration). Keep this app/tab open.' : 'Scheduled "' + label + '" every ' + mins + ' min. Next run: ' + new Date(sched.nextAt).toLocaleTimeString()) + ' View/manage in the SCHEDULE button.';
             }
             if (name === 'list_schedules') {
                 const list = loadSchedules();
@@ -720,7 +761,12 @@
                 '\n- Use the "test_html" tool or the review pass to verify; fix what fails.' +
                 '\n- Never invent credentials or claim actions you did not perform.' +
                 '\n- Track progress: after building, set "project_update": {"files_built": ["..."], "next_steps": ["..."], "notes": "..."} so the workspace remembers what exists and what remains.' +
-                '\n\nOUTPUT: STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"plan"|"artifact"|"done", "questions": ["..."], "plan": [{"phase": "...", "title": "...", "detail": "..."}], "tool_calls": [{"tool": "...", "args": {...}}], "artifact": {"filename": "...", "language": "...", "content": "..."}, "files": {"name": "..."}, "project_update": {"files_built": [...], "next_steps": [...], "notes": "..."}}' +
+                '\n\nOUTPUT: STRICT JSON only, no markdown fences: {"reasoning": ["..."], "reply": "...", "status": "clarify"|"plan"|"artifact"|"done", "questions": ["..."], "suggestions": ["...2-4 short follow-ups..."], "plan": [{"phase": "...", "title": "...", "detail": "..."}], "tool_calls": [{"tool": "...", "args": {...}}], "artifact": {"filename": "...", "language": "...", "content": "..."}, "files": {"name": "..."}, "project_update": {"files_built": [...], "next_steps": [...], "notes": "..."}}' +
+                '\n\nHONESTY & ETHICS RULES' +
+                '\n- Money: NEVER promise specific income amounts or timelines. If asked for money/income, give a realistic, structured plan (options, effort, timeline ranges) and immediately start the first actionable piece (e.g. build the gig portfolio, the budget sheet, the content plan).' +
+                '\n- Outreach/email: NEVER send unsolicited bulk messages (spam is illegal and useless). If asked to mass-email wealthy people or similar, explain the real constraints (reachability, trust, spam laws) and pivot to legitimate alternatives (content that attracts, opt-in lead generation, freelancing outreach to listed clients, grants). Offer to build the legitimate system.' +
+                '\n- Timers: for "set a timer/reminder for X" use schedule_task with oneShot=true so it fires once. Note the app must stay open for timers to fire.' +
+                '\n- YouTube/channel checks: use api_call youtube_rss for latest videos (no key). For full analytics explain the free YouTube Data API key setup.' +
                 '\n\nFORMATTING: "reply" must be clean, professional and structured: short paragraphs, bullets for options/steps, **bold** for key terms, ## for sections. Never dump long unstructured text.' +
                 memoryBlock + proj + activeSkills
             );
@@ -789,7 +835,7 @@
                 const ctx = canvas.getContext('2d');
                 let raf, particles = [], w, h, dpr = Math.min(window.devicePixelRatio || 1, 1.5);
                 const resize = () => { w = canvas.clientWidth; h = canvas.clientHeight; canvas.width = w * dpr; canvas.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
-                const seed = () => { const n = w < 768 ? 26 : 48; particles = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: 1 + Math.random() * 2.2, warm: Math.random() < 0.6 })); };
+                const seed = () => { const n = (w < 768 || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) ? 0 : 48; particles = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25, r: 1 + Math.random() * 2.2, warm: Math.random() < 0.6 })); };
                 const step = () => {
                     ctx.clearRect(0, 0, w, h);
                     for (const p of particles) {
@@ -845,6 +891,7 @@
             const [showRemote, setShowRemote] = useState(false);
             const [showScheduler, setShowScheduler] = useState(false);
             const [chatSearch, setChatSearch] = useState('');
+            const [installReady, setInstallReady] = useState(false);
             const [followMode, setFollowMode] = useState(true);
             const [schedules, setSchedules] = useState([]);
             const [schedLabel, setSchedLabel] = useState('');
@@ -944,6 +991,13 @@
                 return () => window.removeEventListener('keydown', onKey);
             }, []);
             useEffect(() => {
+                const onReady = () => setInstallReady(true);
+                const onInstalled = () => setInstallReady(false);
+                window.addEventListener('nexus-install-ready', onReady);
+                window.addEventListener('nexus-installed', onInstalled);
+                return () => { window.removeEventListener('nexus-install-ready', onReady); window.removeEventListener('nexus-installed', onInstalled); };
+            }, []);
+            useEffect(() => {
                 const vv = window.visualViewport;
                 if (!vv) return;
                 const onResize = () => {
@@ -1006,10 +1060,14 @@
                     if (!due.length) return;
                     const remaining = list.filter(x => !due.includes(x));
                     due.forEach(x => {
-                        remaining.push({ ...x, nextAt: now + x.intervalMinutes * 60000, lastRun: now });
+                        if (x.kind !== 'timer') remaining.push({ ...x, nextAt: now + x.intervalMinutes * 60000, lastRun: now });
                         if (x.kind === 'reminder') {
                             pushMessage({ id: uid(), kind: 'card', title: 'REMINDER · ' + x.label.toUpperCase(), tone: 'warn', lines: [x.prompt], ts: stamp() });
                             notify('Nexus reminder', x.label + ': ' + x.prompt.slice(0, 120));
+                        } else if (x.kind === 'timer') {
+                            pushMessage({ id: uid(), kind: 'card', title: '⏱ TIMER · ' + x.label.toUpperCase(), tone: 'ok', lines: [x.prompt || 'Timer finished!'], ts: stamp() });
+                            notify('Nexus timer', x.label + (x.prompt ? ': ' + x.prompt.slice(0, 100) : ''));
+                            if (navigator.vibrate) { try { navigator.vibrate([200, 100, 200]); } catch (e) {} }
                         } else {
                             pushMessage({ id: uid(), kind: 'card', title: 'SCHEDULED TASK · ' + x.label.toUpperCase(), tone: 'info', lines: ['Running scheduled task automatically...'], ts: stamp() });
                             notify('Nexus scheduled task', 'Running: ' + x.label);
@@ -1320,6 +1378,8 @@
                     pushMessage({ id: uid(), kind: 'card', title: 'HEAVY BUILD DETECTED', tone: 'warn', lines: ['This is a big build. Add a GitHub token in PIPELINE to run it on the free background pipeline, or continue here with Puter (spends your Puter credits).'], ts: stamp() });
                 }
                 setBusy(true);
+                window.__nexusBusy = true;
+                window.__nexusWake.request();
                 const t0 = performance.now();
                 const thoughtId = uid();
                 pushMessage({ id: thoughtId, kind: 'thought', secs: '...', lines: [], ts: stamp() });
@@ -1404,6 +1464,9 @@
                     updateMessage(thoughtId, { secs, lines: out.reasoning || ['Classifying directive...', 'Resolving context...', 'Formulating response...'] });
                     setProviderTag(prov);
                     if (out.reply) pushMessage({ id: uid(), role: 'agent', text: out.reply, provider: prov, ts: stamp() });
+                    if (out.suggestions && Array.isArray(out.suggestions) && out.suggestions.length && out.status !== 'clarify') {
+                        pushMessage({ id: uid(), kind: 'suggestions', items: out.suggestions.slice(0, 3), ts: stamp() });
+                    }
                     if (out.status === 'clarify' && Array.isArray(out.questions) && out.questions.length) {
                         pushMessage({ id: uid(), kind: 'questions', items: out.questions.slice(0, 4), ts: stamp() });
                     }
@@ -1463,6 +1526,8 @@
                     pushMessage({ id: uid(), kind: 'card', title: 'ENGINE ERROR', tone: 'error', lines: [String(err.message || err)], ts: stamp() });
                 } finally {
                     setBusy(false);
+                    window.__nexusBusy = false;
+                    window.__nexusWake.release();
                 }
             };
 
@@ -1614,6 +1679,20 @@
                         </div>
                     );
                 }
+                if (m.kind === 'suggestions') {
+                    return (
+                        <div className="animate-fadeup">
+                            <div className="text-[9px] font-mono text-stone-400 mb-1.5 tracking-wider">TAP TO CONTINUE</div>
+                            <div className="flex flex-wrap gap-2">
+                                {(m.items || []).map((q, i) => (
+                                    <button key={i} onClick={() => handleQuickAnswer(q)} className="text-[11px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3.5 py-2 rounded-full transition-all shadow-soft">
+                                        {q}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                }
                 if (m.kind === 'questions') {
                     return (
                         <div className="animate-fadeup">
@@ -1727,7 +1806,7 @@
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-sm tracking-[0.18em] text-stone-800">NEXUS</span>
-                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V10.0</span>
+                                        <span className="text-[8px] font-mono px-1.5 py-0.5 bg-ember-50 border border-ember-200 rounded-md text-ember-600 tracking-wider">V10.1</span>
                                     </div>
                                     <div className="text-[9px] text-stone-400 font-mono hidden sm:block">CHAT-NATIVE AUTONOMOUS AGENT</div>
                                 </div>
@@ -1741,6 +1820,12 @@
                                 <button onClick={() => { setShowSettings(true); }} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all" title="Brain + models">
                                     BRAIN
                                 </button>
+                                {installReady && (
+                                    <button onClick={async () => { try { await deferredInstall.prompt(); const c = await deferredInstall.userChoice; if (c.outcome === 'accepted') setInstallReady(false); } catch (e) {} }} className="text-[10px] font-mono btn-primary text-white px-3 py-2 rounded-lg tracking-wider transition-all shadow-soft" title="Install as an app on this device">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="inline mr-1"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                                        INSTALL
+                                    </button>
+                                )}
                                 <button onClick={() => { setSchedules(loadSchedules()); setShowScheduler(true); }} className="text-[10px] font-mono border border-cream-400 bg-white text-stone-600 hover:text-ember-600 hover:border-ember-300 px-3 py-2 rounded-lg tracking-wider transition-all" title="Scheduled tasks + reminders">
                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className="inline mr-1"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
                                     SCHEDULE
@@ -2063,19 +2148,20 @@
                                         <button onClick={() => setShowScheduler(false)} className="text-stone-400 hover:text-stone-600 text-sm px-2">X</button>
                                     </div>
                                     <div className="p-5 space-y-4 overflow-y-auto custom-scrollbar">
-                                        <div className="text-[10px] text-stone-400 leading-relaxed">Nexus runs scheduled tasks and reminders automatically, right in this browser (even while you are away - keep the tab open). You can also just ask Nexus: "remind me every hour to drink water" or "check crypto price every 30 minutes".</div>
+                                        <div className="text-[10px] text-stone-400 leading-relaxed">Nexus runs scheduled tasks, reminders and one-shot timers automatically right here (keep this tab open - phones pause background tabs, so Nexus works while the app is open). You can also just say: "remind me every hour to drink water", "check crypto every 30 min", or "set a timer for 10 minutes".</div>
                                         <div className="grid grid-cols-3 gap-2">
                                             <input value={schedLabel} onChange={e => setSchedLabel(e.target.value)} placeholder="Label" className="col-span-1 bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3 py-2.5 focus:outline-none focus:border-ember-400 placeholder:text-stone-400" />
                                             <input value={schedMins} onChange={e => setSchedMins(Number(e.target.value) || 60)} type="number" min="1" placeholder="Every N min" className="col-span-1 bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3 py-2.5 focus:outline-none focus:border-ember-400 placeholder:text-stone-400" />
                                             <select value={schedKind} onChange={e => setSchedKind(e.target.value)} className="col-span-1 bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3 py-2.5 focus:outline-none focus:border-ember-400">
                                                 <option value="task">AI TASK</option>
                                                 <option value="reminder">REMINDER</option>
+                                                <option value="timer">TIMER (ONE-SHOT)</option>
                                             </select>
                                         </div>
                                         <textarea value={schedPrompt} onChange={e => setSchedPrompt(e.target.value)} rows="2" placeholder={schedKind === 'task' ? 'What should Nexus do each time? (it will run the agent automatically)' : 'Reminder message'} className="w-full bg-cream-50 border border-cream-400 text-[12px] rounded-xl px-3 py-2.5 focus:outline-none focus:border-ember-400 placeholder:text-stone-400 resize-none" />
                                         <button onClick={() => {
                                             if (!schedPrompt.trim()) return;
-                                            const sched = { id: uid(), label: schedLabel.trim() || 'Task', prompt: schedPrompt.trim(), intervalMinutes: Math.max(1, Math.min(10080, schedMins)), enabled: true, nextAt: Date.now() + Math.max(1, schedMins) * 60000, kind: schedKind, createdAt: Date.now() };
+                                            const sched = { id: uid(), label: schedLabel.trim() || (schedKind === 'timer' ? 'Timer' : 'Task'), prompt: schedPrompt.trim(), intervalMinutes: Math.max(1, Math.min(10080, schedMins)), enabled: true, nextAt: Date.now() + Math.max(1, schedMins) * 60000, kind: schedKind === 'timer' ? 'timer' : schedKind, createdAt: Date.now() };
                                             const list = loadSchedules(); list.push(sched); saveSchedules(list); setSchedules(list);
                                             setSchedPrompt(''); setSchedLabel('');
                                             notify('Nexus scheduled', sched.label + ' every ' + sched.intervalMinutes + ' min');

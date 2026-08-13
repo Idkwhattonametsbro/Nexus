@@ -208,6 +208,30 @@ background plumbing that holds the secrets.
   injected into future prompts (localStorage, capped at 10).
 - **Export**: the whole session exports as a downloadable markdown file.
 
+## V10.1: Phone assistant (PWA + voice + timers + honesty)
+
+- **PWA**: manifest + service worker + icon -> installable on your phone home
+  screen (Android Chrome "INSTALL" button; iOS: Share -> Add to Home Screen).
+  Offline shell, standalone app mode.
+- **Wake lock**: the screen stays awake while Nexus is working, so long tasks
+  aren't killed mid-run (released when done; re-acquired on return).
+- **Voice**: mic button (Web Speech) and read-aloud (TTS) on replies. Say
+  "Nexus, set a timer for 10 minutes" out loud.
+- **One-shot timers**: "set a timer for X" fires once with notification +
+  vibration (phone) - no repetition. Manage in the SCHEDULE modal (task /
+  reminder / timer).
+- **Keyless YouTube check**: `api_call youtube_rss` returns a channel's latest
+  videos with no API key - "check my channel's progress" works for uploads;
+  full analytics documented as a free YouTube Data API key setup.
+- **Tap-to-continue suggestions**: after every reply Nexus suggests 2-4
+  follow-up chips; tap and it continues - no typing needed.
+- **Honesty guards**: money requests get realistic structured plans (no income
+  promises) and immediate first action; mass unsolicited outreach is refused
+  with real reasons and pivoted to legitimate alternatives; timers note the
+  app must stay open.
+- **Mobile perf**: particles fully disabled on phones + reduced-motion,
+  lazy Monaco, throttled streaming -> no lag, no junk.
+
 ## V9.2: External knowledge tools (from the community repos)
 
 Integrated four public repos as real agent tools:
