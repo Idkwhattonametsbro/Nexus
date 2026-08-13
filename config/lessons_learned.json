@@ -4,9 +4,9 @@
     "When generating a standalone HTML dashboard, always embed all CSS inline and avoid any external dependencies.",
     "When responding to code\u2011generation requests, provide the complete solution exactly in the format specified and omit any extra explanations or commentary.",
     "Always provide a complete, self\u2011contained HTML file with all necessary inline CSS to fully implement the requested layout and styling.",
-    "Always provide a complete, self\u2011contained HTML page with all required CSS written inline and no truncated or missing code."
+    "Always deliver the requested technical architecture analysis in structured markdown, covering memory management, provider routing, self\u2011healing, failure modes, and scaling."
   ],
   "total_runs": 5,
   "successful_runs": 5,
-  "last_run_at": "2026-08-13T12:52:34.289560+00:00"
+  "last_run_at": "2026-08-13T12:53:07.557589+00:00"
 }
