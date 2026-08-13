@@ -5,7 +5,9 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'workspace/**'
       - 'requirements.txt'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 jobs:
@@ -29,3 +31,19 @@ jobs:
         run: |
           python -m compileall -q src
           python -m unittest discover -s tests -v
+
+      - name: UI Syntax Check
+        run: |
+          mkdir -p /tmp/uicheck && cd /tmp/uicheck
+          npm init -y >/dev/null 2>&1
+          npm i @babel/parser --no-audit --no-fund >/dev/null 2>&1
+          cd $GITHUB_WORKSPACE
+          node -e "
+            const fs = require('fs');
+            const parser = require('/tmp/uicheck/node_modules/@babel/parser');
+            const html = fs.readFileSync('workspace/index.html', 'utf8');
+            const m = html.match(/<script type=\"text\/babel\">([\s\S]*?)<\/script>/);
+            if (!m) { console.error('NO BABEL SCRIPT FOUND'); process.exit(1); }
+            try { parser.parse(m[1], { sourceType: 'script', plugins: ['jsx'] }); console.log('UI JSX parse OK (' + m[1].length + ' chars)'); }
+            catch (e) { console.error('UI JSX PARSE FAILED: ' + e.message); process.exit(1); }
+          "
