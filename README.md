@@ -1,6 +1,6 @@
 # Nexus Autonomous Workspace
 
-An autonomous software architecture system: a browser-based control surface (React + Tailwind + Monaco) hosted free on GitHub Pages, wired to a resilient multi-agent Python backend that runs on GitHub Actions, routes across multiple model providers with automatic fallback, remembers what it learns across runs, self-heals failed generations, and commits its own outputs back into the repository.
+An autonomous software architecture system: a browser-based control surface (React + Tailwind + Monaco) hosted free on GitHub Pages, wired to a resilient multi-agent Python backend that runs on GitHub Actions, routes across multiple current-generation model providers with automatic fallback, remembers what it learns across runs, reviews and polishes its own output, self-heals failed generations, and commits its own work back into the repository.
 
 Strict zinc/slate palette throughout. Indigo glow reserved for active processing states and primary actions. No emoji anywhere in the UI or the Python output streams.
 
@@ -13,11 +13,15 @@ nexus-workspace/
 │   └── ci.yml                     # Smoke tests on every push to src/
 ├── workspace/index.html           # The 5-zone control surface (host on GitHub Pages)
 ├── src/
-│   ├── agent.py                   # Orchestrator: memory, research, routing, self-healing, artifacts
+│   ├── agent.py                   # Orchestrator: memory, research, routing, review, self-healing, artifacts
 │   ├── router.py                  # Resilient multi-provider router with fallback chains + retries
 │   ├── reflection.py              # Recursive memory (dedupe, cap, versioned lessons_learned.json)
 │   └── tools/search.py            # Tavily live research tool
-├── tests/test_smoke.py            # 14 smoke tests (routing, fallback, retries, memory, agent flow)
+├── tests/test_smoke.py            # 18 smoke tests (routing, fallback, retries, review, memory, agent flow)
+├── output/                        # Run artifacts + live-preview pointers (committed after each run)
+│   ├── latest_app.html            # Latest generated app (rendered live in the Preview Canvas)
+│   ├── latest_manifest.json       # Latest run metadata (provider, model, latency, artifacts)
+│   └── latest_report.md           # Latest diagnostic report
 ├── config/lessons_learned.json    # Persistent agent memory (committed back after each run)
 ├── requirements.txt
 ├── .env.example
@@ -33,23 +37,28 @@ nexus-workspace/
 5. Outputs are written to `output/`:
    - `report_TIMESTAMP.md` - full diagnostic report
    - `app/style/script/module_TIMESTAMP_N.ext` - compiled artifacts extracted from fenced code blocks
-   - `manifest_TIMESTAMP.json` - run metadata (provider, model, latency, artifacts)
+   - `manifest_TIMESTAMP.json` - run metadata (provider, model, latency, artifacts, review status)
 6. If a code task produced no HTML artifact, the agent retries once with a strict single-block directive (self-healing).
-7. Reflection extracts exactly one lesson per run (deduplicated, capped at 50) and updates memory.
-8. The workflow commits `output/` and the memory file back to the repository (`[skip ci]`).
+7. **Review pass**: a second model (fast chain) critiques the generated HTML against the directive and returns either an improved version or `NO_CHANGE`. Improvements are applied before commit; disabled with `NEXUS_REVIEW=0`.
+8. Reflection extracts exactly one lesson per run (deduplicated, capped at 50) and updates memory.
+9. The workflow commits `output/` and the memory file back to the repository (`[skip ci]`), and uploads the same artifacts to the run page.
 
 ## Routing and Self-Healing
 
+Current-generation models, verified August 2026:
+
 | Task type | Primary provider | Fallback chain |
 | --- | --- | --- |
-| `code` | DeepSeek (`deepseek-chat`) | OpenRouter (Claude 3.5 Sonnet) -> OpenAI (gpt-4o-mini) -> Groq |
-| `fast` (reflection) | Groq (llama-3.3-70b) | DeepSeek -> OpenRouter -> OpenAI |
-| `general` | OpenRouter (Claude 3.5 Sonnet) | OpenAI -> DeepSeek -> Groq |
+| `code` | DeepSeek (`deepseek-v4-pro`) | OpenRouter (Claude Sonnet 4.6) -> OpenAI (gpt-4o-mini) -> Groq (GPT-OSS-120B) |
+| `fast` (reflection/review) | Groq (`openai/gpt-oss-120b`) | DeepSeek -> OpenRouter -> OpenAI |
+| `general` | OpenRouter (`anthropic/claude-sonnet-4.6`) | OpenAI -> DeepSeek -> Groq |
 
+- The OpenRouter key gives access to Claude Sonnet 4.6 - the current agentic-coding flagship.
 - Every provider is attempted up to 3 times with exponential backoff on 429 / 5xx / network errors.
 - If the primary provider fails, the next configured provider takes over automatically.
-- Only `DEEPSEEK_API_KEY` is strictly required for code generation; every other key adds resilience.
-- If every provider fails, the run fails loudly with a summary of all errors.
+- Override any model via env: `NEXUS_MODEL_DEEPSEEK`, `NEXUS_MODEL_GROQ`, `NEXUS_MODEL_OPENROUTER`, `NEXUS_MODEL_OPENAI`.
+- Note: DeepSeek's legacy `deepseek-chat` name was discontinued on 2026-07-24; the v4 line (`deepseek-v4-pro` / `deepseek-v4-flash`) is current.
+- Only `DEEPSEEK_API_KEY` is strictly required for code generation; every other key adds resilience and quality.
 
 ## Local Setup
 
@@ -80,8 +89,8 @@ git push -u origin main
 | Secret | Used for | Get it at |
 | --- | --- | --- |
 | `DEEPSEEK_API_KEY` | Code generation (primary) | platform.deepseek.com |
-| `OPENROUTER_API_KEY` | General routing fallback | openrouter.ai/keys |
-| `GROQ_API_KEY` | Fast tasks (reflection) | console.groq.com/keys |
+| `OPENROUTER_API_KEY` | Claude-level general routing | openrouter.ai/keys |
+| `GROQ_API_KEY` | Fast tasks (reflection + review) | console.groq.com/keys |
 | `OPENAI_API_KEY` | Extra fallback route | platform.openai.com |
 | `TAVILY_API_KEY` | Live web research | app.tavily.com |
 
@@ -103,7 +112,7 @@ https://<YOUR_USERNAME>.github.io/<YOUR_REPO>/workspace/
 
 Five zones: **Command Stream** (directive chat + live thought stream), **Preview Canvas**, **Source Code** (Monaco with a strict zinc/indigo theme), **Agent Memory** (live view of `lessons_learned.json`), and **System Logs**. The **DEPLOY TO PIPELINE** button deep-links to the Actions workflow automatically.
 
-Generated apps committed by the pipeline are also viewable on Pages, e.g. `https://<YOUR_USERNAME>.github.io/<YOUR_REPO>/output/app_20260101_120000_0.html`.
+**Live preview**: the Preview Canvas renders `output/latest_app.html` in a sandboxed iframe with a run-info header (provider, model, latency, artifacts, review status). A seed dashboard ships in the repo; the first real pipeline run replaces it automatically. Generated apps are also directly viewable on Pages, e.g. `https://<YOUR_USERNAME>.github.io/<YOUR_REPO>/output/app_20260101_120000_0.html`.
 
 ## Smoke Tests
 
@@ -120,11 +129,13 @@ The CI workflow runs the same suite on every push touching `src/`.
 - Strict zinc/slate palette; indigo glow only on active processing states and primary actions.
 - No emoji in the UI or Python output streams.
 - Recursive memory: each run adds exactly one lesson (deduplicated); the last 10 lessons are injected into the system prompt of the next run.
+- Review pass: generated HTML is critiqued by a second model before it is committed.
 
 ## Troubleshooting
 
 - **Run fails with "System Error: No valid API keys found"** - the secrets are missing or misnamed. A DeepSeek key alone is enough for code tasks.
 - **Run fails with "All providers exhausted"** - every configured provider errored; the message lists each failure. Check key validity and rate limits.
+- **Run fails with a 400 model-not-found** - the provider renamed a model; set `NEXUS_MODEL_<PROVIDER>` to the current ID (DeepSeek legacy names were discontinued 2026-07-24).
 - **Push rejected after a run** - the workflow commits with `GITHUB_TOKEN`; make sure the branch is not protected.
 - **Nothing committed after a successful run** - the run produced byte-identical output; no diff means no commit, and the push is a no-op.
 - **Monaco editor blank on tab switch** - fixed: the workspace calls `editor.layout()` when the Source Code tab becomes active.

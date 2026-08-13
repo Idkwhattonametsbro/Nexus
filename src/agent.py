@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import shutil
 import argparse
 from datetime import datetime, timezone
 
@@ -96,6 +97,22 @@ class NexusAgent:
             )
             artifacts = self._extract_artifacts(response_text)
 
+        # Quality review pass: a second model critiques and polishes generated
+        # HTML before it is committed. Best-effort; never fails the run.
+        review = {"enabled": False, "applied": False}
+        if task_type == "code" and artifacts.get("html") and os.getenv("NEXUS_REVIEW", "1") != "0":
+            review["enabled"] = True
+            try:
+                improved = self._review_artifact(prompt, artifacts["html"][0])
+                if improved:
+                    artifacts["html"][0] = improved
+                    review["applied"] = True
+                    print("[System] Review pass applied an improved artifact.")
+                else:
+                    print("[System] Review pass approved the artifact as-is.")
+            except Exception as e:
+                print(f"[Warning] Review pass skipped: {e}")
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
         provider = ModelRouter.last_route.get("provider") if ModelRouter.last_route else "unknown"
@@ -114,8 +131,7 @@ class NexusAgent:
 
         written = []
         for ext, prefix, pattern in ARTIFACT_PATTERNS:
-            blocks = re.findall(pattern, response_text, re.IGNORECASE)
-            for i, block in enumerate(blocks):
+            for i, block in enumerate(artifacts.get(ext, [])):
                 if not block or len(block.strip()) < 10:
                     continue
                 code_path = f"output/{prefix}_{timestamp}_{i}.{ext}"
@@ -137,11 +153,21 @@ class NexusAgent:
             "latency_ms": elapsed_ms,
             "artifacts": written,
             "research": bool(research_data),
+            "review": review,
         }
         manifest_path = f"output/manifest_{timestamp}.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
         print(f"[System] Run manifest saved to {manifest_path}")
+
+        # Pointer files consumed by the GitHub Pages control surface.
+        with open("output/latest_manifest.json", "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        shutil.copy(report_path, "output/latest_report.md")
+        html_artifacts = [w for w in written if w.endswith(".html")]
+        if html_artifacts:
+            shutil.copy(html_artifacts[0], "output/latest_app.html")
+            print("[System] Live preview pointer updated (output/latest_app.html)")
 
         SelfReflection.record_execution(prompt, response_text, success=True)
         print("[System] Task sequence completed.")
@@ -153,6 +179,32 @@ class NexusAgent:
             blocks = re.findall(pattern, response_text, re.IGNORECASE)
             found[ext] = [b for b in blocks if b and len(b.strip()) >= 10]
         return found
+
+    @staticmethod
+    def _review_artifact(prompt: str, artifact: str) -> str:
+        """Critique the artifact against the directive. Returns an improved
+        standalone HTML document, or None if the artifact is approved as-is."""
+        review_prompt = (
+            f"Original directive: {prompt}\n\n"
+            f"Generated artifact:\n{artifact[:6000]}\n\n"
+            "You are a senior design engineer. Critique the artifact against the directive. "
+            "Return ONLY ONE of:\n"
+            "1. A single fenced ```html block with the complete improved version. "
+            "Fix layout defects, polish the visual hierarchy, and ensure it is a functional "
+            "standalone page. Keep the same stack (inline CSS, no external dependencies).\n"
+            "2. The exact token NO_CHANGE if the artifact already fully satisfies the directive."
+        )
+        out = ModelRouter.call_llm(
+            prompt=review_prompt,
+            system_prompt="You are Nexus Review, a senior design engineer enforcing premium visual standards.",
+            task_type="fast",
+        ).strip()
+        if "NO_CHANGE" in out.upper() and "```" not in out:
+            return None
+        blocks = re.findall(r"```html\s*([\s\S]*?)```", out, re.IGNORECASE)
+        if blocks and len(blocks[0].strip()) >= 10 and blocks[0].strip() != artifact.strip():
+            return blocks[0].strip()
+        return None
 
 
 if __name__ == "__main__":

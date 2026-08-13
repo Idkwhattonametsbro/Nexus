@@ -1,0 +1,17 @@
+{
+  "timestamp": "20260813_112221",
+  "run_id": "local",
+  "prompt": "Build a landing page",
+  "mode": "code",
+  "provider": "unknown",
+  "model": "unknown",
+  "latency_ms": 0,
+  "artifacts": [
+    "output/app_20260813_112221_0.html"
+  ],
+  "research": false,
+  "review": {
+    "enabled": true,
+    "applied": false
+  }
+}

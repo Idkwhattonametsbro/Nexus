@@ -41,7 +41,7 @@ class TestRouting(unittest.TestCase):
         os.environ["GROQ_API_KEY"] = "groq-fake"
         r = router.ModelRouter.route_request("write html for a dashboard", "general")
         self.assertEqual(r["provider"], "DeepSeek")
-        self.assertEqual(r["model"], "deepseek-chat")
+        self.assertEqual(r["model"], "deepseek-v4-pro")
 
     def test_fast_routes_to_groq(self):
         os.environ["GROQ_API_KEY"] = "groq-fake"
@@ -63,7 +63,7 @@ class TestRouting(unittest.TestCase):
             out = router.ModelRouter.call_llm("hello", task_type="fast")
         self.assertEqual(out, "ok")
         payload = m.call_args.kwargs["json"]
-        self.assertEqual(payload["model"], "llama-3.3-70b-versatile")
+        self.assertEqual(payload["model"], "openai/gpt-oss-120b")
         self.assertEqual(len(payload["messages"]), 2)
 
     def test_fallback_chain_when_primary_fails(self):
@@ -178,6 +178,12 @@ class TestAgentFlow(unittest.TestCase):
             manifest = json.load(f)
         self.assertEqual(manifest["provider"], "unknown")  # mocked, no real route
         self.assertIn("app_", manifest["artifacts"][0])
+        self.assertIn("review", manifest)
+
+        # Live-preview pointer files must exist for the Pages control surface
+        self.assertTrue(glob.glob(os.path.join(self._out, "latest_app.html")))
+        self.assertTrue(glob.glob(os.path.join(self._out, "latest_manifest.json")))
+        self.assertTrue(glob.glob(os.path.join(self._out, "latest_report.md")))
 
         with open(reflection.LESSONS_FILE, "r", encoding="utf-8") as f:
             mem = json.load(f)
@@ -186,7 +192,7 @@ class TestAgentFlow(unittest.TestCase):
     def test_self_healing_retry_when_no_html(self):
         first = "Sorry, here is a description only."
         second = '```html\n<html><body class="bg-black"></body></html>\n```'
-        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[first, second]):
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[first, second, "NO_CHANGE"]):
             agent = NexusAgent()
             agent.process_task("Build a landing page", mode="code")
 
@@ -194,6 +200,42 @@ class TestAgentFlow(unittest.TestCase):
         self.assertTrue(apps)
         with open(apps[0], "r", encoding="utf-8") as f:
             self.assertIn("<html", f.read())
+
+    def test_review_pass_applies_improvement(self):
+        gen = '```html\n<div class="a">v1</div>\n```'
+        improved = '```html\n<div class="b">v2 polished premium</div>\n```'
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[gen, improved, "lesson"]):
+            NexusAgent().process_task("Build a landing page", mode="code")
+
+        with open(os.path.join(self._out, "latest_app.html"), "r", encoding="utf-8") as f:
+            self.assertIn("v2 polished premium", f.read())
+        with open(os.path.join(self._out, "latest_manifest.json"), "r", encoding="utf-8") as f:
+            m = json.load(f)
+        self.assertTrue(m["review"]["enabled"])
+        self.assertTrue(m["review"]["applied"])
+
+    def test_review_pass_skipped_when_disabled(self):
+        os.environ["NEXUS_REVIEW"] = "0"
+        gen = '```html\n<div class="a">v1</div>\n```'
+        try:
+            with mock.patch.object(router.ModelRouter, "call_llm", return_value=gen) as m:
+                NexusAgent().process_task("Build a landing page", mode="code")
+            self.assertEqual(m.call_count, 2)  # generation + reflection only
+            with open(os.path.join(self._out, "latest_manifest.json"), "r", encoding="utf-8") as f:
+                mm = json.load(f)
+            self.assertFalse(mm["review"]["enabled"])
+        finally:
+            os.environ.pop("NEXUS_REVIEW", None)
+
+    def test_review_no_change_keeps_artifact(self):
+        gen = '```html\n<div class="a">v1</div>\n```'
+        with mock.patch.object(router.ModelRouter, "call_llm", side_effect=[gen, "NO_CHANGE", "lesson"]):
+            NexusAgent().process_task("Build a landing page", mode="code")
+        with open(os.path.join(self._out, "latest_app.html"), "r", encoding="utf-8") as f:
+            self.assertIn("v1", f.read())
+        with open(os.path.join(self._out, "latest_manifest.json"), "r", encoding="utf-8") as f:
+            m = json.load(f)
+        self.assertFalse(m["review"]["applied"])
 
 
 class TestSearch(unittest.TestCase):

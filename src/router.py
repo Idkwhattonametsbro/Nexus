@@ -16,22 +16,26 @@ CHAINS: Dict[str, List[str]] = {
     "general": ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY"],
 }
 
+# Current-generation models (verified August 2026).
+# DeepSeek: legacy deepseek-chat was discontinued 2026-07-24; v4 line is current.
+# Groq: llama-4-maverick deprecated 2026-03-09 in favor of gpt-oss-120b.
+# OpenRouter: Claude Sonnet 4.6 is the current agentic-coding flagship.
 PROVIDERS: Dict[str, Dict[str, str]] = {
     "DEEPSEEK_API_KEY": {
         "provider": "DeepSeek",
         "url": "https://api.deepseek.com/chat/completions",
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-pro",
     },
     "GROQ_API_KEY": {
         "provider": "Groq",
         "url": "https://api.groq.com/openai/v1/chat/completions",
         "key": "GROQ_API_KEY",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
     },
     "OPENROUTER_API_KEY": {
         "provider": "OpenRouter",
         "url": "https://openrouter.ai/api/v1/chat/completions",
-        "model": "anthropic/claude-3.5-sonnet",
+        "model": "anthropic/claude-sonnet-4.6",
     },
     "OPENAI_API_KEY": {
         "provider": "OpenAI",
@@ -40,9 +44,22 @@ PROVIDERS: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Optional per-provider model overrides via environment.
+MODEL_OVERRIDES = {
+    "DEEPSEEK_API_KEY": "NEXUS_MODEL_DEEPSEEK",
+    "GROQ_API_KEY": "NEXUS_MODEL_GROQ",
+    "OPENROUTER_API_KEY": "NEXUS_MODEL_OPENROUTER",
+    "OPENAI_API_KEY": "NEXUS_MODEL_OPENAI",
+}
+
 
 class ModelRouter:
     last_route: Optional[Dict[str, Any]] = None
+
+    @staticmethod
+    def _model_for(env_key: str) -> str:
+        override = os.getenv(MODEL_OVERRIDES[env_key])
+        return override or PROVIDERS[env_key]["model"]
 
     @staticmethod
     def _effective_task_type(prompt: str, task_type: str) -> str:
@@ -67,6 +84,7 @@ class ModelRouter:
             if api_key:
                 spec = dict(PROVIDERS[env_key])
                 spec["key"] = api_key
+                spec["model"] = ModelRouter._model_for(env_key)
                 candidates.append(spec)
         return candidates
 
@@ -82,7 +100,10 @@ class ModelRouter:
     @staticmethod
     def diagnose() -> Dict[str, Any]:
         """Health report of configured providers and their roles."""
-        configured = [p["provider"] for p in PROVIDERS.values() if os.getenv(p["key"])]
+        configured = [
+            {"provider": p["provider"], "model": ModelRouter._model_for(k)}
+            for k, p in PROVIDERS.items() if os.getenv(k)
+        ]
         return {
             "configured_providers": configured,
             "routes": {k: len(ModelRouter._candidates(k)) for k in CHAINS},
